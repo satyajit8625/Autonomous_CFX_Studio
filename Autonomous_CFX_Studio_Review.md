@@ -1,7 +1,7 @@
 # Autonomous CFX Studio — Consolidated Architectural Review & Workflow Demonstration
 
-**Document Version:** 3.0.0 (Milestone 3: Native Alembic & Multimodal Image-Guided Workflow)  
-**Milestone Status:** Implemented & Verified — Standalone Animated Alembic Roundtrip, Annotation Bundle Capture, Image-to-Geometry Surface Mapping, Multimodal Correction Agent, and Non-Destructive Temporal Corrective Layer  
+**Document Version:** 3.1.0 (Milestone 3.1: Autonomous CFX Studio Desktop Workflow & Agent UI Overhaul)  
+**Milestone Status:** Implemented & Verified — Standalone Animated Alembic Roundtrip, 7-Stage Desktop Workflow Stepper, DAG Scene Browser with Role Confirmation, Conversational Agent Feed with Clarification Cards, Dedicated 10-Step Image-Guided Correction Panel, Expandable Diagnostics Drawer, Automated Framing, and Headless Acceptance Suite  
 **Runtime Platform:** Microsoft Windows (Python 3.10+, PySide6, official C++ Alembic 1.8.11 / `imath`, OpenUSD / `usd-core`, NumPy, SciPy)  
 **Working Directory:** `O:\02_Tools\05_Dev\Cfx_Studio`  
 **Core Pipeline Dependency:** 100% Standalone (Autodesk Maya is an optional external validator only; zero core pipeline dependencies on Maya)
@@ -47,11 +47,19 @@ In accordance with rigorous production engineering standards, all prior claims a
 | **Surface Mapping** | Ambiguous External Upload Flagging & Confirmation | **Demonstrated & Verified** | [`tests/test_surface_mapping.py::test_external_screenshot_ambiguity_flag`](file:///o:/02_Tools/05_Dev/Cfx_Studio/tests/test_surface_mapping.py) |
 | **Correction Agent** | Multimodal Natural Language Intent & Frame Range Parsing | **Demonstrated & Verified** | [`src/autonomous_cfx/agent/correction_agent.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/src/autonomous_cfx/agent/correction_agent.py), [`tests/test_correction_workflow.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/tests/test_correction_workflow.py) |
 | **Correction Agent** | Repair Strategy Explanation (Solver vs Non-Destructive Layer) | **Demonstrated & Verified** | [`tests/test_correction_workflow.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/tests/test_correction_workflow.py) |
-| **Temporal Consistency**| Non-Destructive Corrective Layer with Smooth $\sin^2$ Bell Curve | **Demonstrated & Verified** | [`src/autonomous_cfx/simulation/corrective_layer.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/src/autonomous_cfx/simulation/corrective_layer.py), [`tests/test_correction_workflow.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/tests/test_correction_workflow.py) |
+| **Temporal Consistency**| Non-Destructive Corrective Layer with Smooth $\sin^2$ Bell Curve | **Demonstrated & Verified** | [`src/autonomous_cfx/simulation/corrective_layer.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/simulation/corrective_layer.py), [`tests/test_correction_workflow.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/tests/test_correction_workflow.py) |
 | **Temporal Consistency**| Protected Region Feature Freezing (Cuff Shape Preservation) | **Demonstrated & Verified** | [`tests/test_correction_workflow.py::test_temporal_corrective_layer_execution`](file:///o:/02_Tools/05_Dev/Cfx_Studio/tests/test_correction_workflow.py) |
 | **Temporal Consistency**| Unaffected Area Preservation (< 0.0001 mm displacement) | **Demonstrated & Verified** | [`tests/test_correction_workflow.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/tests/test_correction_workflow.py) |
 | **Temporal Consistency**| Flicker & Velocity Pop Verification | **Demonstrated & Verified** | [`tests/test_correction_workflow.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/tests/test_correction_workflow.py) |
-| **Desktop Application** | Interactive PySide6 GUI with Annotation Toolbar & 3D Preview | **Implemented & Functional** | [`src/autonomous_cfx/ui/app.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/src/autonomous_cfx/ui/app.py) |
+| **Desktop Application** | 7-Stage Workflow Breadcrumb Stepper (`WorkflowBanner`) | **Demonstrated & Verified** | [`src/autonomous_cfx/ui/workflow_banner.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/src/autonomous_cfx/ui/workflow_banner.py), [`tests/test_ui_workflow.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/tests/test_ui_workflow.py) |
+| **Desktop Application** | Empty Project Startup & State-Dependent Action Gating | **Demonstrated & Verified** | [`src/autonomous_cfx/ui/app.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/src/autonomous_cfx/ui/app.py), [`tests/test_ui_workflow.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/tests/test_ui_workflow.py) |
+| **Desktop Application** | DAG Scene Browser & Explicit Semantic Role Confirmation | **Demonstrated & Verified** | [`src/autonomous_cfx/ui/scene_browser.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/src/autonomous_cfx/ui/scene_browser.py), [`tests/test_ui_workflow.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/tests/test_ui_workflow.py) |
+| **Desktop Application** | Center Viewport Automated Bounding Box Framing (`frame_all()`) | **Demonstrated & Verified** | [`src/autonomous_cfx/ui/viewport_widget.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/src/autonomous_cfx/ui/viewport_widget.py), [`tests/test_ui_workflow.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/tests/test_ui_workflow.py) |
+| **Desktop Application** | Persistent Card-Based AI Conversation Feed & Clarification Cards | **Demonstrated & Verified** | [`src/autonomous_cfx/ui/agent_conversation_panel.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/src/autonomous_cfx/ui/agent_conversation_panel.py), [`tests/test_ui_workflow.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/tests/test_ui_workflow.py) |
+| **Desktop Application** | Dedicated 10-Step Image-Guided Correction Panel | **Demonstrated & Verified** | [`src/autonomous_cfx/ui/correction_panel.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/src/autonomous_cfx/ui/correction_panel.py), [`scripts/run_desktop_acceptance.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/scripts/run_desktop_acceptance.py) |
+| **Desktop Application** | Expandable Diagnostics Drawer with "Jump to Issue" Navigation | **Demonstrated & Verified** | [`src/autonomous_cfx/ui/diagnostics_drawer.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/src/autonomous_cfx/ui/diagnostics_drawer.py), [`scripts/run_desktop_acceptance.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/scripts/run_desktop_acceptance.py) |
+| **Desktop Application** | Standalone Native Alembic Import/Export Modal Dialogs | **Demonstrated & Verified** | [`src/autonomous_cfx/ui/alembic_dialogs.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/src/autonomous_cfx/ui/alembic_dialogs.py), [`scripts/run_desktop_acceptance.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/scripts/run_desktop_acceptance.py) |
+| **Desktop Application** | Headless Acceptance Suite (Watchdogs, 11 PNGs, Animated GIF) | **Demonstrated & Verified** | [`scripts/run_desktop_acceptance.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/scripts/run_desktop_acceptance.py), [`evidence/playblasts/desktop_workflow_acceptance.gif`](file:///o:/02_Tools/05_Dev/Cfx_Studio/evidence/playblasts/desktop_workflow_acceptance.gif) |
 | **Lighting Delivery** | OpenUSD (`.usda`/`.usd`) Time-Sampled Cache Export | **Demonstrated & Verified** | [`src/autonomous_cfx/core/usd_export.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/src/autonomous_cfx/core/usd_export.py), [`tests/test_usd_export.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/tests/test_usd_export.py) |
 | **Advanced Features** | Multi-Layer Garment Penetration (Jacket over Hoodie) | **Proposed / Roadmap** | Future Milestone |
 | **Advanced Features** | GPU CUDA / Vulkan Compute XPBD Kernels | **Proposed / Roadmap** | Future Milestone |
@@ -245,9 +253,110 @@ DEMONSTRATION COMPLETED SUCCESSFULLY: ALL CRITERIA VERIFIED
 
 ---
 
-## 8. Automated Test Suite Verification
+## 8. Milestone E: Autonomous CFX Studio Desktop Workflow & Agent UI Overhaul
 
-The complete automated test suite currently contains **44 passing tests** across 14 test modules:
+Autonomous CFX Studio transforms the prototype solver viewer into an intuitive, artist-friendly, agent-driven desktop application ([`src/autonomous_cfx/ui/app.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/src/autonomous_cfx/ui/app.py)). It enforces the complete production pipeline:
+
+$$\textbf{Import Alembic (.abc)} \longrightarrow \textbf{Assign Roles} \longrightarrow \textbf{Describe Behavior} \longrightarrow \textbf{Simulate} \longrightarrow \textbf{Mark Corrections} \longrightarrow \textbf{Review} \longrightarrow \textbf{Export Alembic (.abc)}$$
+
+```mermaid
+flowchart LR
+    A["1. Import Alembic (.abc)"] --> B["2. Assign Roles<br/>(Garment/Collider/Prop)"]
+    B --> C["3. Describe Behavior<br/>(AI Natural Language)"]
+    C --> D["4. Simulate<br/>(XPBD Physical Solver)"]
+    D --> E["5. Mark Corrections<br/>(Image Annotations)"]
+    E --> F["6. Review<br/>(Artist Quality Gate)"]
+    F --> G["7. Export Alembic (.abc)<br/>(Production Cache)"]
+```
+
+### 8.1 7-Stage Workflow Breadcrumb Stepper & State Gating ([`workflow_banner.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/src/autonomous_cfx/ui/workflow_banner.py))
+- **Visual Progress Stepper**: Displays all 7 stages horizontally. The current active stage is highlighted with high-contrast styling and an arrow indicator (`-> [3. Describe Behavior]`).
+- **Blocked Action Banner**: When an action is not permitted, an amber warning banner clearly explains why (e.g., *"Cannot simulate: Assign and confirm at least one Garment and one Collider role in the Scene Browser"* or *"Cannot approve cache: Run a simulation or repair first"*).
+- **Empty Startup State**: The application launches into a clean empty project. Downstream actions ("Approve Cache", "Export Approved Alembic", "Run Simulation") are strictly disabled until upstream requirements are satisfied.
+- **Secondary Demo Loading**: "Load Demo Scene" is exposed as an explicit secondary action on the top toolbar rather than auto-populating on startup.
+
+### 8.2 DAG Scene Browser & Explicit Role Confirmation ([`scene_browser.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/src/autonomous_cfx/ui/scene_browser.py))
+- **Hierarchical Node Tree**: Recursively lists objects from imported Alembic archives with node type (`Xform`, `PolyMesh`), visibility checkbox, vertex count, face count, and constant topology indicator.
+- **Semantic Roles**: Dropdown selectors provide 4 distinct roles:
+  1. `Garment`: Simulated cloth geometry.
+  2. `Body Collider`: Animated deforming character collision geometry.
+  3. `Prop Collider`: Passive rigid or moving scene collision geometry (e.g. chair, floor).
+  4. `Ignored`: Excluded from physical calculation.
+- **Explicit Confirmation Gate**: Role assignments require clicking **"Confirm Roles"**. Object names alone (e.g. `"hero_jacket"`) do **not** determine simulation behavior without artist confirmation.
+- **Cache Invalidation**: Any change to object roles or scene hierarchy automatically invalidates downstream simulation caches, requiring re-simulation.
+
+### 8.3 Center 3D Viewport & Automated Framing ([`viewport_widget.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/src/autonomous_cfx/ui/viewport_widget.py))
+- **Automated Framing (`frame_all()`)**: Automatically computes the 3D axis-aligned bounding box across all active garments and colliders upon shot ingestion or framing request. Positions the camera at distance $D = 1.5 \times \frac{R_{\text{bounds}}}{\tan(\text{FOV}/2)}$ directed at the scene centroid, eliminating small or off-screen asset display.
+- **Display Overlays**: Shaded render, wireframe overlay, collision geometry visualization, and penetration defect heatmap.
+- **Before / After Comparison Mode**: Splits or toggles viewport rendering between the uncorrected simulation cache and the corrected result.
+- **Dynamic Timeline Widget**: Supports arbitrary shot frame ranges (not hardcoded to 40 frames) and variable playback FPS (24, 25, 30, 48, 60). Displays red issue marker ticks directly on the timeline bar at defect frames.
+
+### 8.4 Persistent AI Agent Conversation Panel ([`agent_conversation_panel.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/src/autonomous_cfx/ui/agent_conversation_panel.py))
+- **Conversational Card Feed**: Replaces dense technical logs with an interactive chat feed:
+  - **Artist Prompt Cards**: User requests with timestamp.
+  - **Interpreted Intent Cards**: Structured parameter breakdown (cloth preset, stretch stiffness, bending compliance, density).
+  - **Clarification Cards**: Displayed when contradictory or ambiguous prompts are submitted (e.g., *"Make it rigid leather with fluid silk drape"*). Features clickable resolution options that immediately populate and resubmit the clarified instruction.
+  - **Execution Cards**: Live progress bar and solver telemetry.
+  - **Quality Review Cards**: Summary of remaining penetrations, issue frame list, and quick-action buttons ("Mark Corrections", "Approve Cache").
+- **Transparent Runtime Attribution Badge**: Prominently displays active execution mode at all times:
+  - `Rule-based mode (Deterministic grammar)` when running offline.
+  - `Local model: [name/version]` when connected to a local LLM server.
+  - `Disconnected` when unavailable.
+  Deterministic fallback is never misrepresented as neural model inference.
+
+### 8.5 Dedicated 10-Step Image-Guided Correction Panel ([`correction_panel.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/src/autonomous_cfx/ui/correction_panel.py))
+A dedicated sidebar panel dedicated to visual defect repair, moving clutter out of the main viewport toolbar:
+1. **Choose Frame**: Scrub to defect frame using timeline or issue table.
+2. **Capture Viewport**: Caches high-precision depth, face ID, and color buffers.
+3. **Drawing Tools**: Highlight Brush (adjustable radius), Region Outline (polygon lasso), Directional Arrow (flow/push vector), Eraser.
+4. **Region Classification**: Defect Region (orange markup) vs. Protected Region (cyan markup).
+5. **Instruction Prompt**: Natural language description (e.g. *"Push cloth 15mm off body, keep cuff shape"*).
+6. **Temporal Range & Fades**: Spinboxes for start frame, end frame, fade-in frames, and fade-out frames ($\sin^2$ bell curve transitions).
+7. **Preview 3D Falloff**: Live viewport highlight of manifold geodesic weights $w_i \in [0, 1]$ before modifying simulation data.
+8. **Apply Bounded Attempt**: Executes non-destructive corrective layer on target vertices.
+9. **Compare Before / After**: Displays de-penetration delta, unaffected vertex displacement (< 0.0001 mm), and feature preservation.
+10. **Accept / Reject**: "Accept" commits the corrective layer to the shot cache; "Reject" reverts cache to previous state.
+
+### 8.6 Expandable Diagnostics Drawer ([`diagnostics_drawer.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/src/autonomous_cfx/ui/diagnostics_drawer.py))
+A bottom collapsible panel providing deep technical telemetry without cluttering the main conversation:
+- **Actionable Quality Issues Tab**: Table listing defect type, frame number, affected garment, penetration depth (mm), and severity. Double-clicking any issue or clicking **"Jump to Issue"** instantly jumps the viewport timeline to that frame.
+- **Repair History Tab**: Logs every repair attempt, method (solver parameter tuning vs. corrective layer), target frames, and convergence result.
+- **Job History Tab**: Records simulation worker execution, sub-step counts, runtime durations, and process exit codes.
+- **Performance Metrics Tab**: Real-time FPS, memory usage, vertex counts, and constraint iteration metrics.
+- **Technical Logs Tab**: Searchable raw log stream with timestamp filters.
+
+### 8.7 Alembic Import / Export Modal Dialogs ([`alembic_dialogs.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/src/autonomous_cfx/ui/alembic_dialogs.py))
+- **`AlembicImportDialog`**: Standalone Ogawa archive reader displaying full node tree, frame range, FPS, total sample count, coordinate system units, and up-axis metadata confirmation before ingestion.
+- **`AlembicExportDialog`**: Allows selecting export mode:
+  - **Full-Shot Mode**: Preserves source scene hierarchy, colliders, cameras, and unchanged objects while replacing simulated garments with approved caches.
+  - **Garment-Only Mode**: Exports clean isolated simulated geometry.
+  Both modes enforce readback verification (`alembic.Abc.IArchive`) to guarantee file integrity before signaling success.
+
+### 8.8 Automated Headless Acceptance Suite ([`run_desktop_acceptance.py`](file:///o:/02_Tools/05_Dev/Cfx_Studio/scripts/run_desktop_acceptance.py))
+To verify the complete UI workflow deterministically without requiring interactive user clicks, an automated acceptance test script was executed in headless mode (`QT_QPA_PLATFORM=offscreen`):
+- **Watchdog Timeout Architecture**: Each step runs under a `StepWatchdog` context manager with dedicated background watchdog threads (15–30s timeout). If any step blocks on modal dialogs or solver threads, it terminates with an informative timeout error rather than hanging silently.
+- **Unbuffered Logging**: Standard output uses `sys.stdout.reconfigure(line_buffering=True)` and explicit `flush=True` on every print statement, guaranteeing immediate output streaming.
+- **Safe Modal Dialog Handling**: `AutonomousCFXMainWindow._show_message_box` automatically returns `QMessageBox.Ok` when running offscreen, preventing Win32 modal message loops from blocking automated scripts.
+- **Dynamic 3D-to-Screen Rasterization**: Correction strokes dynamically sample coordinates from visible cloth face projections at frame 12, ensuring brush strokes hit displaced physical geometry regardless of gravity or drape deformation.
+- **Execution Log Summary**: All 12 workflow stages completed successfully in **10.37 seconds**:
+  1. Empty startup verified.
+  2. Standalone Alembic shot imported.
+  3. Roles confirmed and viewport framed (`frame_all()`).
+  4. Natural language prompt submitted and parsed.
+  5. Simulation executed; defect detected at frame 10.
+  6. Defect frame captured; correction annotation drawn.
+  7. 3D manifold falloff computed and previewed.
+  8. Bounded non-destructive corrective layer applied.
+  9. Telemetry evaluated; cache approved by artist.
+  10. Production Alembic exported and verified (`shot010_sim_v002_approved.abc`, 143.2 KB).
+  11. Contradictory prompt tested; clarification card validated.
+  12. Animated workflow GIF playblast compiled.
+
+---
+
+## 9. Automated Test Suite Verification
+
+The complete automated test suite currently contains **49 passing tests** across 15 test modules:
 
 ```text
 ============================= test session starts =============================
@@ -257,88 +366,115 @@ rootdir: O:\02_Tools\05_Dev\Cfx_Studio
 tests/test_alembic_io.py::test_alembic_export_and_import_roundtrip PASSED [  2%]
 tests/test_alembic_io.py::test_alembic_multi_object_shot_with_colliders PASSED [  4%]
 tests/test_alembic_io.py::test_alembic_maya_ingest PASSED                [  6%]
-tests/test_behavior_parser.py::test_parse_leather_prompt PASSED          [  9%]
-tests/test_behavior_parser.py::test_parse_silk_prompt PASSED             [ 11%]
-tests/test_behavior_parser.py::test_parse_denim_prompt PASSED            [ 13%]
-tests/test_cache_io.py::test_simulation_cache_serialization PASSED       [ 15%]
-tests/test_cache_io.py::test_obj_sequence_and_manifest_export PASSED     [ 18%]
-tests/test_correction_workflow.py::test_multimodal_intent_parsing_and_planning PASSED [ 20%]
-tests/test_correction_workflow.py::test_temporal_corrective_layer_execution PASSED [ 22%]
-tests/test_defect_detection_and_repairs.py::test_deliberate_penetration_detector PASSED [ 25%]
-tests/test_defect_detection_and_repairs.py::test_diagnosed_and_healed_simulation PASSED [ 27%]
-tests/test_defect_detection_and_repairs.py::test_unresolved_case_honest_stop PASSED [ 29%]
-tests/test_evaluator_repairs.py::test_evaluator_on_clean_simulation PASSED [ 31%]
-tests/test_evaluator_repairs.py::test_evaluator_catches_excessive_penetration PASSED [ 34%]
-tests/test_evaluator_repairs.py::test_bounded_repair_strategist PASSED   [ 36%]
-tests/test_external_asset_import.py::test_external_asset_generation_and_ingestion PASSED [ 38%]
-tests/test_geometry.py::test_bounding_box PASSED                         [ 40%]
-tests/test_geometry.py::test_mesh_normals_and_edges PASSED               [ 43%]
-tests/test_geometry.py::test_mesh_vertex_masses PASSED                   [ 45%]
-tests/test_job_system.py::test_job_runner_execution PASSED               [ 47%]
-tests/test_job_system.py::test_job_runner_cancellation PASSED            [ 50%]
-tests/test_llm_tools.py::test_tool_schemas_validation PASSED             [ 52%]
-tests/test_llm_tools.py::test_clarification_tool_schema PASSED           [ 54%]
-tests/test_llm_tools.py::test_local_llm_client_normal_prompt PASSED      [ 56%]
-tests/test_llm_tools.py::test_local_llm_client_contradictory_prompt_triggers_clarification PASSED [ 59%]
-tests/test_maya_connector.py::test_maya_connector_standalone_safety PASSED [ 61%]
-tests/test_multiprocess_runner.py::test_process_runner_successful_execution PASSED [ 63%]
-tests/test_multiprocess_runner.py::test_process_runner_clean_cancellation PASSED [ 65%]
-tests/test_multiprocess_runner.py::test_process_runner_worker_crash_recovery PASSED [ 68%]
-tests/test_orchestrator.py::test_orchestrator_end_to_end_workflow PASSED [ 70%]
-tests/test_procedural_assets.py::test_procedural_jacket PASSED           [ 72%]
-tests/test_procedural_assets.py::test_procedural_animated_body PASSED    [ 75%]
-tests/test_procedural_assets.py::test_procedural_chair PASSED            [ 77%]
-tests/test_procedural_assets.py::test_asset_manager_milestone_package PASSED [ 79%]
-tests/test_surface_mapping.py::test_surface_mapping_rasterization_and_selection PASSED [ 81%]
-tests/test_surface_mapping.py::test_surface_mapping_occlusion_and_backface_exclusion PASSED [ 84%]
-tests/test_surface_mapping.py::test_external_screenshot_ambiguity_flag PASSED [ 86%]
-tests/test_usd_export.py::test_usd_cache_export_and_verification PASSED  [ 88%]
-tests/test_viewport_annotations.py::test_viewport_annotation_tools_and_undo PASSED [ 90%]
+tests/test_behavior_parser.py::test_parse_leather_prompt PASSED          [  8%]
+tests/test_behavior_parser.py::test_parse_silk_prompt PASSED             [ 10%]
+tests/test_behavior_parser.py::test_parse_denim_prompt PASSED            [ 12%]
+tests/test_cache_io.py::test_simulation_cache_serialization PASSED       [ 14%]
+tests/test_cache_io.py::test_obj_sequence_and_manifest_export PASSED     [ 16%]
+tests/test_correction_workflow.py::test_multimodal_intent_parsing_and_planning PASSED [ 18%]
+tests/test_correction_workflow.py::test_temporal_corrective_layer_execution PASSED [ 20%]
+tests/test_defect_detection_and_repairs.py::test_deliberate_penetration_detector PASSED [ 22%]
+tests/test_defect_detection_and_repairs.py::test_diagnosed_and_healed_simulation PASSED [ 24%]
+tests/test_defect_detection_and_repairs.py::test_unresolved_case_honest_stop PASSED [ 26%]
+tests/test_evaluator_repairs.py::test_evaluator_on_clean_simulation PASSED [ 28%]
+tests/test_evaluator_repairs.py::test_evaluator_catches_excessive_penetration PASSED [ 30%]
+tests/test_evaluator_repairs.py::test_bounded_repair_strategist PASSED   [ 32%]
+tests/test_external_asset_import.py::test_external_asset_generation_and_ingestion PASSED [ 34%]
+tests/test_geometry.py::test_bounding_box PASSED                         [ 36%]
+tests/test_geometry.py::test_mesh_normals_and_edges PASSED               [ 38%]
+tests/test_geometry.py::test_mesh_vertex_masses PASSED                   [ 40%]
+tests/test_job_system.py::test_job_runner_execution PASSED               [ 42%]
+tests/test_job_system.py::test_job_runner_cancellation PASSED            [ 44%]
+tests/test_llm_tools.py::test_tool_schemas_validation PASSED             [ 46%]
+tests/test_llm_tools.py::test_clarification_tool_schema PASSED           [ 48%]
+tests/test_llm_tools.py::test_local_llm_client_normal_prompt PASSED      [ 51%]
+tests/test_llm_tools.py::test_local_llm_client_contradictory_prompt_triggers_clarification PASSED [ 53%]
+tests/test_maya_connector.py::test_maya_connector_standalone_safety PASSED [ 55%]
+tests/test_multiprocess_runner.py::test_process_runner_successful_execution PASSED [ 57%]
+tests/test_multiprocess_runner.py::test_process_runner_clean_cancellation PASSED [ 59%]
+tests/test_multiprocess_runner.py::test_process_runner_worker_crash_recovery PASSED [ 61%]
+tests/test_orchestrator.py::test_orchestrator_end_to_end_workflow PASSED [ 63%]
+tests/test_procedural_assets.py::test_procedural_jacket PASSED           [ 65%]
+tests/test_procedural_assets.py::test_procedural_animated_body PASSED    [ 67%]
+tests/test_procedural_assets.py::test_procedural_chair PASSED            [ 69%]
+tests/test_procedural_assets.py::test_asset_manager_milestone_package PASSED [ 71%]
+tests/test_surface_mapping.py::test_surface_mapping_rasterization_and_selection PASSED [ 73%]
+tests/test_surface_mapping.py::test_surface_mapping_occlusion_and_backface_exclusion PASSED [ 75%]
+tests/test_surface_mapping.py::test_external_screenshot_ambiguity_flag PASSED [ 77%]
+tests/test_ui_workflow.py::test_ui_empty_startup_and_gating PASSED       [ 79%]
+tests/test_ui_workflow.py::test_ui_demo_scene_loading_and_framing PASSED [ 81%]
+tests/test_ui_workflow.py::test_ui_role_modification_and_invalidation PASSED [ 83%]
+tests/test_ui_workflow.py::test_ui_approval_gating_and_invalidation PASSED [ 85%]
+tests/test_ui_workflow.py::test_ui_clarification_card_interaction PASSED [ 87%]
+tests/test_usd_export.py::test_usd_cache_export_and_verification PASSED  [ 89%]
+tests/test_viewport_annotations.py::test_viewport_annotation_tools_and_undo PASSED [ 91%]
 tests/test_viewport_annotations.py::test_viewport_bundle_capture_and_3d_preview PASSED [ 93%]
 tests/test_xpbd_simulation.py::test_distance_constraint_preserves_length PASSED [ 95%]
 tests/test_xpbd_simulation.py::test_ground_plane_collision PASSED        [ 97%]
 tests/test_xpbd_simulation.py::test_simulation_engine_run PASSED         [100%]
 
-============================= 44 passed in 10.83s =============================
+============================= 49 passed in 11.21s =============================
 ```
 
 ---
 
-## 9. Visual Evidence & Artifacts
+## 10. Visual Evidence & Artifacts
 
-1. **Vector Diagram Playblast**: [`evidence/playblasts/alembic_correction_visual.svg`](file:///o:/02_Tools/05_Dev/Cfx_Studio/evidence/playblasts/alembic_correction_visual.svg) illustrates the complete 3-panel pipeline: (1) 2D Viewport markup, (2) 3D Geodesic manifold selection, (3) Cross-section de-penetration comparison.
-2. **ASCII Simulation Playblast**: [`evidence/playblasts/jacket_simulation_playblast.txt`](file:///o:/02_Tools/05_Dev/Cfx_Studio/evidence/playblasts/jacket_simulation_playblast.txt) records the physical drape progression across frames.
-3. **Verified Export Archives**:
-   - [`evidence/exports/shot010_production_input.abc`](file:///o:/02_Tools/05_Dev/Cfx_Studio/evidence/exports/shot010_production_input.abc) (50.1 KB animated Alembic shot)
-   - [`evidence/exports/shot010_approved_jacket_v002.abc`](file:///o:/02_Tools/05_Dev/Cfx_Studio/evidence/exports/shot010_approved_jacket_v002.abc) (54.1 KB approved simulated Alembic cache)
-   - [`evidence/exports/external_jacket_tailored_v001.usda`](file:///o:/02_Tools/05_Dev/Cfx_Studio/evidence/exports/external_jacket_tailored_v001.usda) (OpenUSD cache stage)
-4. **Captured Annotation Bundle**:
-   - Manifest: [`evidence/annotations/shot010_frame10_bundle/bundle_shot010_f10_manifest.json`](file:///o:/02_Tools/05_Dev/Cfx_Studio/evidence/annotations/shot010_frame10_bundle/bundle_shot010_f10_manifest.json)
-   - Depth Buffer: [`evidence/annotations/shot010_frame10_bundle/depth_buffer.npy`](file:///o:/02_Tools/05_Dev/Cfx_Studio/evidence/annotations/shot010_frame10_bundle/depth_buffer.npy)
-   - Face ID Buffer: [`evidence/annotations/shot010_frame10_bundle/face_id_buffer.npy`](file:///o:/02_Tools/05_Dev/Cfx_Studio/evidence/annotations/shot010_frame10_bundle/face_id_buffer.npy)
+### 10.1 Desktop Workflow Screen Evidence (11 High-Resolution Captures)
+1. **01. Empty Project Startup**: [`evidence/screenshots/01_empty_project_startup.png`](file:///o:/02_Tools/05_Dev/Cfx_Studio/evidence/screenshots/01_empty_project_startup.png) (59.9 KB) — Clean empty state; Approve Cache and Export Alembic buttons disabled; amber banner explaining blocked state; "Load Demo Scene" visible as explicit secondary action.
+2. **02. Alembic Imported (Unconfirmed Roles)**: [`evidence/screenshots/02_alembic_imported_unconfirmed.png`](file:///o:/02_Tools/05_Dev/Cfx_Studio/evidence/screenshots/02_alembic_imported_unconfirmed.png) (61.4 KB) — Imported Alembic DAG hierarchy (`hero_jacket`, `hero_body`, `chair_collider`) with role selection dropdowns in Scene Browser.
+3. **03. Roles Confirmed & Viewport Framed**: [`evidence/screenshots/03_roles_confirmed_framed.png`](file:///o:/02_Tools/05_Dev/Cfx_Studio/evidence/screenshots/03_roles_confirmed_framed.png) (66.6 KB) — Roles explicitly confirmed; viewport automatically framed via `frame_all()`; behavior prompt input enabled; active stepper at "3. Describe Behavior".
+4. **04. Behavior Prompt & Parsed Intent**: [`evidence/screenshots/04_prompt_intent_parsed.png`](file:///o:/02_Tools/05_Dev/Cfx_Studio/evidence/screenshots/04_prompt_intent_parsed.png) (70.2 KB) — Conversational feed displaying artist prompt card and structured intent card (leather preset, physical stiffness parameters).
+5. **05. Simulation Completed & Defect Detected**: [`evidence/screenshots/05_simulation_completed.png`](file:///o:/02_Tools/05_Dev/Cfx_Studio/evidence/screenshots/05_simulation_completed.png) (61.2 KB) — Simulated cloth draped over animated body; automated penetration detector flags defect at frame 10 (14.0 mm depth); issue markers plotted on timeline.
+6. **06. Viewport Annotation Drawn**: [`evidence/screenshots/06_annotation_drawn.png`](file:///o:/02_Tools/05_Dev/Cfx_Studio/evidence/screenshots/06_annotation_drawn.png) (65.3 KB) — Viewport frame 10 captured into dedicated Correction Panel; defect region painted with orange brush; cuff feature protected with cyan markup.
+7. **07. 3D Manifold Falloff Preview**: [`evidence/screenshots/07_3d_falloff_preview.png`](file:///o:/02_Tools/05_Dev/Cfx_Studio/evidence/screenshots/07_3d_falloff_preview.png) (66.3 KB) — Live 3D manifold geodesic falloff ($w_i \in [0, 1]$) glowing preview over target sleeve vertices before solver execution.
+8. **08. Bounded Correction & Comparison**: [`evidence/screenshots/08_correction_before_after.png`](file:///o:/02_Tools/05_Dev/Cfx_Studio/evidence/screenshots/08_correction_before_after.png) (70.2 KB) — Before/After comparison view showing de-penetration along collider normal and temporal $\sin^2$ bell curve blend.
+9. **09. Artist Review & Approval**: [`evidence/screenshots/09_artist_approved.png`](file:///o:/02_Tools/05_Dev/Cfx_Studio/evidence/screenshots/09_artist_approved.png) (68.4 KB) — Reviewable quality card in agent conversation feed; artist clicks "Approve Cache"; workflow stepper marks simulation approved.
+10. **10. Alembic Export & Readback Verification**: [`evidence/screenshots/10_alembic_exported_verified.png`](file:///o:/02_Tools/05_Dev/Cfx_Studio/evidence/screenshots/10_alembic_exported_verified.png) (68.4 KB) — Alembic export dialog saving `shot010_sim_v002_approved.abc`; readback verification confirms 20 samples and valid topology.
+11. **11. Edge Cases & Clarification Handling**: [`evidence/screenshots/11_edge_cases_clarification.png`](file:///o:/02_Tools/05_Dev/Cfx_Studio/evidence/screenshots/11_edge_cases_clarification.png) (68.2 KB) — Agent clarification card responding to contradictory prompt ("rigid leather with fluid silk drape") with clickable resolution options.
+
+### 10.2 Animated Playblasts & Diagrams
+1. **Animated Workflow Acceptance Playblast**: [`evidence/playblasts/desktop_workflow_acceptance.gif`](file:///o:/02_Tools/05_Dev/Cfx_Studio/evidence/playblasts/desktop_workflow_acceptance.gif) (1,146 KB) — Complete 11-step visual workflow playback (1.6s slide duration) demonstrating end-to-end user experience from empty launch to verified Alembic export.
+2. **Vector Diagram Playblast**: [`evidence/playblasts/alembic_correction_visual.svg`](file:///o:/02_Tools/05_Dev/Cfx_Studio/evidence/playblasts/alembic_correction_visual.svg) (5.8 KB) — Illustrates the 3-panel pipeline: (1) 2D Viewport markup, (2) 3D Geodesic manifold selection, (3) Cross-section de-penetration comparison.
+3. **ASCII Simulation Playblast**: [`evidence/playblasts/jacket_simulation_playblast.txt`](file:///o:/02_Tools/05_Dev/Cfx_Studio/evidence/playblasts/jacket_simulation_playblast.txt) (6.3 KB) — Records physical drape progression across frames.
+
+### 10.3 Verified Production Cache Archives
+1. **Production Shot Input**: [`evidence/exports/shot010_production_input.abc`](file:///o:/02_Tools/05_Dev/Cfx_Studio/evidence/exports/shot010_production_input.abc) (50.1 KB animated Alembic shot).
+2. **Approved Script Simulation**: [`evidence/exports/shot010_approved_jacket_v002.abc`](file:///o:/02_Tools/05_Dev/Cfx_Studio/evidence/exports/shot010_approved_jacket_v002.abc) (54.1 KB approved simulated Alembic cache).
+3. **Approved Desktop UI Simulation**: [`evidence/exports/shot010_sim_v002_approved.abc`](file:///o:/02_Tools/05_Dev/Cfx_Studio/evidence/exports/shot010_sim_v002_approved.abc) (143.2 KB approved production Alembic archive, 20 samples).
+4. **OpenUSD Cache Stage**: [`evidence/exports/external_jacket_tailored_v001.usda`](file:///o:/02_Tools/05_Dev/Cfx_Studio/evidence/exports/external_jacket_tailored_v001.usda) (484.8 KB OpenUSD stage).
+
+### 10.4 Captured Viewport Annotation Bundles
+- Manifest: [`evidence/annotations/shot010_frame10_bundle/bundle_shot010_f10_manifest.json`](file:///o:/02_Tools/05_Dev/Cfx_Studio/evidence/annotations/shot010_frame10_bundle/bundle_shot010_f10_manifest.json)
+- Depth Buffer: [`evidence/annotations/shot010_frame10_bundle/depth_buffer.npy`](file:///o:/02_Tools/05_Dev/Cfx_Studio/evidence/annotations/shot010_frame10_bundle/depth_buffer.npy)
+- Face ID Buffer: [`evidence/annotations/shot010_frame10_bundle/face_id_buffer.npy`](file:///o:/02_Tools/05_Dev/Cfx_Studio/evidence/annotations/shot010_frame10_bundle/face_id_buffer.npy)
 
 ---
 
-## 10. Reproducible Execution Commands
+## 11. Reproducible Execution Commands
 
 All claims can be independently reproduced on Windows with the following commands:
 
 ```cmd
-:: 1. Run complete automated test suite (44 tests)
+:: 1. Run complete automated test suite (49 tests)
 python -m pytest tests -v
 
-:: 2. Run end-to-end Alembic & Multimodal Workflow Demonstration
+:: 2. Run automated Desktop GUI Workflow Acceptance Suite (Generates 11 PNGs & animated GIF)
+python scripts/run_desktop_acceptance.py
+
+:: 3. Run end-to-end Alembic & Multimodal Workflow Demonstration script
 python scripts/demo_alembic_multimodal_workflow.py
 
-:: 3. Generate simulation playblasts and SVG visual diagrams
+:: 4. Generate simulation playblasts and SVG visual diagrams
 python scripts/generate_playblast.py
 
-:: 4. Run diagnosed and healed bounded repair demonstration
+:: 5. Run diagnosed and healed bounded repair demonstration
 python scripts/demo_healed_repair.py
 
-:: 5. Run unresolved conflict honest stop demonstration
+:: 6. Run unresolved conflict honest stop demonstration
 python scripts/demo_unresolved_case.py
 
-:: 6. Launch interactive desktop GUI with 3D Viewport & Annotation Canvas
+:: 7. Launch interactive desktop GUI with 3D Viewport & Annotation Canvas
 scripts\run_studio.bat
 ```
+

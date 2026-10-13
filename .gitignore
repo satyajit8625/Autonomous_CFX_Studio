@@ -29,10 +29,13 @@ wheels/
 htmlcov/
 test_output/
 test_run_headless/
+annotations/
 
 # Output Caches & Temp files
 *.vpcache
 *.obj
 *.abc
+!evidence/exports/*.abc
 shots/*/caches/
 output/
+
