@@ -3,6 +3,7 @@
 **Document Version:** 3.1.0 (Milestone 3.1: Autonomous CFX Studio Desktop Workflow & Agent UI Overhaul)  
 **Milestone Status:** Implemented & Verified — Standalone Animated Alembic Roundtrip, 7-Stage Desktop Workflow Stepper, DAG Scene Browser with Role Confirmation, Conversational Agent Feed with Clarification Cards, Dedicated 10-Step Image-Guided Correction Panel, Expandable Diagnostics Drawer, Automated Framing, and Headless Acceptance Suite  
 **Runtime Platform:** Microsoft Windows (Python 3.10+, PySide6, official C++ Alembic 1.8.11 / `imath`, OpenUSD / `usd-core`, NumPy, SciPy)  
+**Git Revision:** `7cfbf02` (Branch: `master`)  
 **Working Directory:** `O:\02_Tools\05_Dev\Cfx_Studio`  
 **Core Pipeline Dependency:** 100% Standalone (Autodesk Maya is an optional external validator only; zero core pipeline dependencies on Maya)
 
