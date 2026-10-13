@@ -1,9 +1,9 @@
 {
   "project": "Autonomous CFX Studio",
-  "version": "4.0.0",
-  "milestone": "Milestone v4.0 - Real Local-Model AI Agent & Multimodal Cloth Simulation",
-  "git_commit": "1ec2afdd828dd2508e776924b5d987f6f2073845",
-  "timestamp": "2026-10-13T16:50:00+05:30",
+  "version": "4.1.0",
+  "milestone": "Milestone v4.0 Consolidated - Real Local AI Agent, Dual-Image Vision, Penetration Classifier, and 100-Frame Action Shot",
+  "git_commit": "1521060938f36c53573c71a3648ebfce0288806d",
+  "timestamp": "2026-10-13T18:05:00+05:30",
   "hardware": {
     "gpu": "NVIDIA GeForce RTX 3050 (6144 MiB VRAM, CUDA Compute 8.6)",
     "driver": "591.86",
@@ -16,13 +16,13 @@
     "text_tool_llm": {
       "model": "qwen2.5-coder:7b",
       "format": "Q4_K_M (4.7 GB)",
-      "runtime": "Ollama 0.3.x on 127.0.0.1:11434",
+      "runtime": "Ollama on 127.0.0.1:11434",
       "fallback_disabled": true
     },
     "vision_model": {
       "model": "moondream:latest",
       "format": "1.7 GB",
-      "runtime": "Ollama 0.3.x Native Vision on 127.0.0.1:11434"
+      "runtime": "Ollama Native Vision on 127.0.0.1:11434"
     }
   },
   "dependencies": {
@@ -43,12 +43,19 @@
     "vision_transcripts": "evidence/model_transcripts/real_vision_acceptance_transcripts.json",
     "production_input_alembic": "evidence/exports/shot020_production_input.abc",
     "approved_output_alembic": "evidence/exports/shot020_shearling_coat_approved.abc",
+    "long_action_input_alembic": "evidence/exports/shot030_action_long_input.abc",
+    "long_action_approved_alembic": "evidence/exports/shot030_action_long_approved.abc",
     "videos": {
       "before_cloth_simulation": "evidence/videos/cloth_simulation_before.mp4",
       "after_cloth_simulation": "evidence/videos/cloth_simulation_after.mp4",
       "side_by_side_comparison": "evidence/videos/cloth_simulation_comparison.mp4",
       "desktop_workflow_session": "evidence/videos/desktop_workflow_session.mp4"
     },
-    "animated_playblast_gif": "evidence/playblasts/desktop_workflow_acceptance.gif"
+    "annotated_renders": {
+      "unmarked": "evidence/annotations/shot020_frame10_bundle/clean_render_unmarked.png",
+      "annotated": "evidence/annotations/shot020_frame10_bundle/annotated_render.png"
+    },
+    "animated_playblast_gif": "evidence/playblasts/desktop_workflow_acceptance.gif",
+    "bundle_zip": "Autonomous_CFX_Studio_v4_Evidence_Bundle.zip"
   }
 }
