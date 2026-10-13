@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "autonomous-cfx-studio"
+version = "1.0.0"
+authors = [
+  { name="Autonomous CFX Team", email="dev@autonomouscfx.internal" },
+]
+description = "Next-generation standalone CFX simulation and autonomous cloth agent"
+readme = "README.md"
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: Microsoft :: Windows",
+    "Topic :: Multimedia :: Graphics :: 3D Modeling",
+]
+dependencies = [
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+    "trimesh>=4.0.0",
+    "PySide6>=6.5.0",
+]
+
+[project.scripts]
+cfx-studio = "autonomous_cfx.ui.app:launch_studio"
+cfx-headless = "scripts.run_headless:run_pipeline"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+pythonpath = ["src"]
