@@ -11,21 +11,29 @@ from PySide6.QtCore import QObject, Qt, Signal, Slot
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import (
     QApplication,
+    QComboBox,
     QFileDialog,
     QHBoxLayout,
+    QLabel,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
+    QPushButton,
     QSplitter,
     QStatusBar,
     QVBoxLayout,
     QWidget,
 )
 
+from autonomous_cfx.agent.correction_agent import MultimodalCorrectionAgent
 from autonomous_cfx.agent.orchestrator import AutonomousCFXOrchestrator, WorkflowExecutionResult
 from autonomous_cfx.assets.asset_manager import AssetManager
+from autonomous_cfx.core.alembic_io import AlembicShotExporter, AlembicShotImporter
 from autonomous_cfx.core.cache_io import SimulationCache
 from autonomous_cfx.core.project import ProjectManager
+from autonomous_cfx.core.surface_mapping import ImageToSurfaceMapper
 from autonomous_cfx.jobs.job_runner import JobRunner
+from autonomous_cfx.simulation.corrective_layer import CorrectiveLayerEngine
 from autonomous_cfx.ui.agent_panel import AgentPanel
 from autonomous_cfx.ui.review_panel import ReviewPanel
 from autonomous_cfx.ui.timeline_widget import TimelineWidget
@@ -78,9 +86,18 @@ class AutonomousCFXMainWindow(QMainWindow):
         act_new.triggered.connect(self._on_new_project)
         menu_file.addAction(act_new)
 
+        act_load_abc = QAction("Import Animated Alembic Shot (.abc)...", self)
+        act_load_abc.triggered.connect(self._on_import_alembic_shot)
+        menu_file.addAction(act_load_abc)
+
         act_load_obj = QAction("Import Cloth OBJ...", self)
         act_load_obj.triggered.connect(self._on_import_obj)
         menu_file.addAction(act_load_obj)
+
+        menu_file.addSeparator()
+        act_export_abc = QAction("Export Approved Alembic (.abc)...", self)
+        act_export_abc.triggered.connect(self._on_export_alembic_shot)
+        menu_file.addAction(act_export_abc)
 
         menu_file.addSeparator()
         act_exit = QAction("Exit", self)
@@ -109,11 +126,50 @@ class AutonomousCFXMainWindow(QMainWindow):
         self.agent_panel.cancel_requested.connect(self._on_cancel_simulation)
         splitter_h.addWidget(self.agent_panel)
 
-        # Middle: Viewport and Timeline
+        # Middle: Viewport, Annotation Controls, and Timeline
         middle_container = QWidget()
         vbox_middle = QVBoxLayout(middle_container)
         vbox_middle.setContentsMargins(0, 0, 0, 0)
         vbox_middle.setSpacing(4)
+
+        # Annotation Toolbar
+        toolbar_annot = QHBoxLayout()
+        toolbar_annot.setSpacing(6)
+
+        self.btn_toggle_annot = QPushButton("✏️ Annotate Frame")
+        self.btn_toggle_annot.setCheckable(True)
+        self.btn_toggle_annot.clicked.connect(self._on_toggle_annotation)
+        toolbar_annot.addWidget(self.btn_toggle_annot)
+
+        self.combo_annot_tool = QComboBox()
+        self.combo_annot_tool.addItems(["brush", "outline", "arrow", "text"])
+        self.combo_annot_tool.currentTextChanged.connect(self._on_annot_tool_changed)
+        toolbar_annot.addWidget(self.combo_annot_tool)
+
+        self.txt_annot_note = QLineEdit()
+        self.txt_annot_note.setPlaceholderText("Describe intent (e.g. Remove body penetration here during frames 1045–1060)...")
+        toolbar_annot.addWidget(self.txt_annot_note, stretch=1)
+
+        self.btn_map_surface = QPushButton("🔍 Map to 3D")
+        self.btn_map_surface.clicked.connect(self._on_map_annotation_to_surface)
+        toolbar_annot.addWidget(self.btn_map_surface)
+
+        self.btn_run_correction = QPushButton("⚡ Execute Correction")
+        self.btn_run_correction.setStyleSheet("background-color: #2b5b84; color: white; font-weight: bold;")
+        self.btn_run_correction.clicked.connect(self._on_execute_multimodal_correction)
+        toolbar_annot.addWidget(self.btn_run_correction)
+
+        btn_undo = QPushButton("↩️")
+        btn_undo.setToolTip("Undo stroke")
+        btn_undo.clicked.connect(lambda: self.viewport.undo_annotation())
+        toolbar_annot.addWidget(btn_undo)
+
+        btn_clear = QPushButton("🗑️")
+        btn_clear.setToolTip("Clear annotations")
+        btn_clear.clicked.connect(lambda: self.viewport.clear_annotations())
+        toolbar_annot.addWidget(btn_clear)
+
+        vbox_middle.addLayout(toolbar_annot)
 
         self.viewport = Viewport3DWidget()
         vbox_middle.addWidget(self.viewport, stretch=1)
@@ -321,6 +377,185 @@ class AutonomousCFXMainWindow(QMainWindow):
         if dir_path:
             self.project_manager = ProjectManager(dir_path)
             self.status_bar.showMessage(f"Loaded project: {dir_path}")
+
+    def _on_import_alembic_shot(self):
+        """Inspect and load standalone animated Alembic archive (.abc)."""
+        file_path, _ = QFileDialog.getOpenFileName(self, "Import Animated Shot", "", "Alembic Archives (*.abc)")
+        if not file_path:
+            return
+
+        try:
+            importer = AlembicShotImporter()
+            summary = importer.inspect_archive(file_path)
+
+            self.agent_panel.append_log(
+                f"[Alembic Import] Inspected '{Path(file_path).name}': "
+                f"FPS={summary.fps}, Frames={summary.frame_range}, Nodes={len(summary.nodes)}, "
+                f"Total Samples={summary.total_samples}"
+            )
+
+            shot_data = importer.load_shot(file_path)
+
+            if shot_data.garment_meshes:
+                first_garment_frames = list(shot_data.garment_meshes.values())[0]
+                self.jacket_mesh = first_garment_frames[0]
+                self.viewport.set_cloth_geometry(self.jacket_mesh)
+                # Populate cache
+                self.active_cache = SimulationCache("alembic_garment", {
+                    f + 1: m.vertices for f, m in enumerate(first_garment_frames)
+                }, faces=first_garment_frames[0].faces)
+
+            if shot_data.body_colliders:
+                first_body_frames = list(shot_data.body_colliders.values())[0]
+                self.viewport.set_colliders([first_body_frames[0]])
+
+            self.timeline.set_frame_range(summary.frame_range[0], summary.frame_range[1])
+            self.timeline.set_frame(summary.frame_range[0])
+            self.status_bar.showMessage(f"Loaded Alembic Shot: {Path(file_path).name} ({summary.total_samples} samples)")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Alembic Error", f"Failed to import Alembic archive: {e}")
+
+    def _on_export_alembic_shot(self):
+        """Export approved simulation results to versioned production Alembic archive."""
+        if not self.active_cache:
+            QMessageBox.warning(self, "Export", "No active simulation cache to export.")
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(self, "Export Approved Alembic Shot", "shot010_sim_v001.abc", "Alembic Archives (*.abc)")
+        if not file_path:
+            return
+
+        try:
+            exporter = AlembicShotExporter()
+            garment_name = self.active_cache.name or "jacket"
+            frame_geoms = [self.active_cache.get_frame_geometry(f) for f in self.active_cache.frames]
+
+            out_path = exporter.export_shot(
+                output_path=file_path,
+                simulated_garments={f"/shot/{garment_name}": frame_geoms},
+                fps=24.0,
+                start_frame=min(self.active_cache.frames.keys()) if self.active_cache.frames else 1
+            )
+
+            self.agent_panel.append_log(f"[Alembic Export] Wrote verified archive: {out_path}")
+            QMessageBox.information(
+                self,
+                "Alembic Export Complete",
+                f"Successfully exported lighting-ready Alembic archive:\n\n{out_path}"
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Export Error", f"Failed to export Alembic archive: {e}")
+
+    def _on_toggle_annotation(self, checked: bool):
+        self.viewport.set_annotation_mode(checked)
+        self.btn_toggle_annot.setText("🖌️ Drawing Active" if checked else "✏️ Annotate Frame")
+        self.status_bar.showMessage("Annotation mode active: Draw with mouse on cloth" if checked else "Camera navigation active")
+
+    def _on_annot_tool_changed(self, tool_name: str):
+        self.viewport.set_annotation_tool(tool_name)
+
+    def _on_map_annotation_to_surface(self):
+        """Map 2D viewport drawing mask to 3D surface vertices with falloff and preview."""
+        if not self.viewport.annotation_strokes:
+            QMessageBox.information(self, "Annotation", "Draw a defect region on the viewport first.")
+            return
+
+        if not self.viewport.cloth_geometry:
+            return
+
+        cam_params = self.viewport.get_camera_parameters()
+        w, h = cam_params.width, cam_params.height
+
+        # Create binary mask from strokes
+        mask = np.zeros((h, w), dtype=np.uint8)
+        for stroke in self.viewport.annotation_strokes:
+            radius = int(stroke.get("radius", 14.0))
+            for pt in stroke.get("points", []):
+                px, py = int(pt[0]), int(pt[1])
+                y_min, y_max = max(0, py - radius), min(h - 1, py + radius)
+                x_min, x_max = max(0, px - radius), min(w - 1, px + radius)
+                mask[y_min:y_max+1, x_min:x_max+1] = 255
+
+        depth_buf, face_id_buf = ImageToSurfaceMapper.rasterize_viewport_buffers(self.viewport.cloth_geometry, cam_params)
+        selection = ImageToSurfaceMapper.map_mask_to_surface(mask, face_id_buf, self.viewport.cloth_geometry, falloff_radius=0.08)
+
+        self.viewport.set_surface_selection_preview(selection)
+        self.agent_panel.append_log(
+            f"[Surface Mapper] Mapped mask to {len(selection.selected_faces)} visible faces and "
+            f"{len(selection.selected_vertices)} surface vertices with manifold falloff."
+        )
+        self.status_bar.showMessage(f"Selected {len(selection.selected_vertices)} surface vertices with falloff")
+
+    def _on_execute_multimodal_correction(self):
+        """Execute multimodal temporal correction using agent formulation and non-destructive layer."""
+        if not self.active_cache:
+            QMessageBox.warning(self, "Correction", "Please run or load a simulation cache first.")
+            return
+
+        note = self.txt_annot_note.text().strip()
+        if not note:
+            note = "Remove body penetration here during frames 1045–1060. Fade the correction into surrounding frames."
+
+        # Map current mask if not yet previewed
+        if not self.viewport.surface_selection_preview:
+            self._on_map_annotation_to_surface()
+
+        selection = self.viewport.surface_selection_preview
+        if not selection or not selection.selected_vertices:
+            QMessageBox.warning(self, "Correction", "No 3D surface vertices selected. Draw on cloth first.")
+            return
+
+        bundle_dir = str(self.project_manager.root_dir / "annotations" / f"frame_{self.viewport.current_frame}")
+        bundle = self.viewport.capture_annotation_bundle(
+            bundle_dir=bundle_dir,
+            note_text=note
+        )
+
+        agent = MultimodalCorrectionAgent()
+        region = bundle.regions[0] if bundle.regions else None
+        if not region:
+            return
+
+        request = agent.parse_annotation_to_request(bundle, region, selection)
+        plan = agent.plan_correction_strategy(request)
+
+        self.agent_panel.append_log(f"[Agent Strategy] {plan.explanation}")
+
+        # Assemble sim cache frames
+        sim_frames = [self.active_cache.get_frame_geometry(f) for f in sorted(self.active_cache.frames.keys())]
+        body_frames = None
+        if hasattr(self, "body_collider") and self.body_collider:
+            body_frames = [self.body_collider.geometry] * len(sim_frames)
+
+        corrected_frames, telemetry = CorrectiveLayerEngine.apply_correction(
+            sim_cache=sim_frames,
+            request=request,
+            colliders_cache=body_frames,
+            collision_margin=0.008
+        )
+
+        # Update cache
+        for f_idx, corrected_geom in enumerate(corrected_frames):
+            frame_num = f_idx + 1
+            self.active_cache.frames[frame_num] = corrected_geom.vertices
+
+        self.agent_panel.append_log(
+            f"[Correction Applied] Penetration Before={telemetry.max_penetration_before_mm}mm, "
+            f"After={telemetry.max_penetration_after_mm}mm, Outside Disp={telemetry.max_displacement_outside_region_mm}mm, "
+            f"Flicker-Free={telemetry.is_flicker_free}"
+        )
+
+        self._on_timeline_frame_changed(self.viewport.current_frame)
+        QMessageBox.information(
+            self,
+            "Correction Complete",
+            f"Non-Destructive Corrective Layer Applied:\n\n"
+            f"• Max Penetration: {telemetry.max_penetration_before_mm} mm → {telemetry.max_penetration_after_mm} mm\n"
+            f"• Unaffected Area Disp: {telemetry.max_displacement_outside_region_mm} mm\n"
+            f"• Temporal Smoothness: Flicker-Free = {telemetry.is_flicker_free}\n"
+            f"• Frames Corrected: {telemetry.corrected_frames_count}"
+        )
 
     def _on_import_obj(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Import Cloth Mesh", "", "3D Geometry (*.obj *.stl *.ply)")

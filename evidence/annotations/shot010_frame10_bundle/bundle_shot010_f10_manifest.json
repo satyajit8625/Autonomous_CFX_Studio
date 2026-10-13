@@ -1,0 +1,59 @@
+{
+  "bundle_id": "bundle_shot010_f10",
+  "shot_name": "shot010",
+  "garment_name": "hero_jacket",
+  "geometry_version": "v001",
+  "frame": 10,
+  "time_seconds": 0.375,
+  "camera": {
+    "yaw": 25.0,
+    "pitch": 10.0,
+    "distance": 2.4,
+    "target": [
+      0.0,
+      1.1,
+      0.0
+    ],
+    "fov": 1.8,
+    "width": 512,
+    "height": 512,
+    "view_matrix": [],
+    "projection_matrix": [],
+    "near_clip": 0.1,
+    "far_clip": 100.0
+  },
+  "regions": [
+    {
+      "region_id": "reg_sleeve_01",
+      "label": "Left Sleeve Contact",
+      "intent_description": "Remove body penetration here during frames 8-14. Preserve the cuff shape and existing folds. Fade the correction into surrounding frames.",
+      "drawing_tool": "brush",
+      "stroke_points": [
+        [
+          250.0,
+          260.0
+        ],
+        [
+          255.0,
+          265.0
+        ],
+        [
+          260.0,
+          270.0
+        ]
+      ],
+      "color_rgba": [
+        255,
+        60,
+        60,
+        200
+      ],
+      "is_protected": false
+    }
+  ],
+  "created_at": 1791884040.5571632,
+  "clean_image_path": "O:\\02_Tools\\05_Dev\\Cfx_Studio\\evidence\\annotations\\shot010_frame10_bundle\\clean_render.png",
+  "annotation_overlay_path": "O:\\02_Tools\\05_Dev\\Cfx_Studio\\evidence\\annotations\\shot010_frame10_bundle\\annotation_overlay.png",
+  "depth_buffer_path": "O:\\02_Tools\\05_Dev\\Cfx_Studio\\evidence\\annotations\\shot010_frame10_bundle\\depth_buffer.npy",
+  "face_id_buffer_path": "O:\\02_Tools\\05_Dev\\Cfx_Studio\\evidence\\annotations\\shot010_frame10_bundle\\face_id_buffer.npy"
+}

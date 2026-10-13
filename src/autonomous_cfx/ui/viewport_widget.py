@@ -5,7 +5,8 @@ Guaranteed cross-platform stability across all Windows display drivers.
 
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
+import time
+from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 from PySide6.QtCore import QPointF, Qt, QTimer
 from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen, QPolygonF
@@ -43,6 +44,51 @@ class Viewport3DWidget(QWidget):
         self.show_colliders: bool = True
         self.show_grid: bool = True
         self.current_frame: int = 1
+
+        # Annotation Canvas State
+        self.annotation_mode: bool = False
+        self.current_tool: str = "brush"  # 'brush', 'outline', 'arrow', 'text'
+        self.brush_radius: float = 14.0
+        self.active_stroke: List[Tuple[float, float]] = []
+        self.annotation_strokes: List[Dict[str, Any]] = []
+        self.undo_stack: List[List[Dict[str, Any]]] = []
+        self.current_region_label: str = "Defect Region"
+        self.active_color: QColor = QColor(255, 60, 60, 200)
+
+        # 3D Surface Selection Preview
+        self.surface_selection_preview: Any = None
+
+    def set_annotation_mode(self, enabled: bool) -> None:
+        """Toggle between camera navigation and 2D annotation drawing."""
+        self.annotation_mode = enabled
+        self.update()
+
+    def set_annotation_tool(self, tool: str) -> None:
+        """Select drawing tool: 'brush', 'outline', 'arrow', 'text'."""
+        self.current_tool = tool
+        self.update()
+
+    def set_surface_selection_preview(self, selection: Any) -> None:
+        """Preview selected 3D surface vertices and falloff in viewport."""
+        self.surface_selection_preview = selection
+        self.update()
+
+    def clear_annotations(self) -> None:
+        """Clear all annotation strokes on current frame."""
+        self.undo_stack.append(list(self.annotation_strokes))
+        self.annotation_strokes.clear()
+        self.active_stroke.clear()
+        self.update()
+
+    def undo_annotation(self) -> None:
+        """Undo last annotation stroke."""
+        if self.annotation_strokes:
+            self.undo_stack.append(list(self.annotation_strokes))
+            self.annotation_strokes.pop()
+            self.update()
+        elif self.undo_stack:
+            self.annotation_strokes = self.undo_stack.pop()
+            self.update()
 
     def set_cloth_geometry(self, mesh: Optional[MeshGeometry]) -> None:
         """Update cloth geometry to display."""
@@ -112,20 +158,48 @@ class Viewport3DWidget(QWidget):
         screen_coords = np.column_stack([x_screen, y_screen])
         return screen_coords, z_view
 
-    # Mouse navigation events
+    # Mouse navigation & annotation events
     def mousePressEvent(self, event):
         self.last_mouse_pos = event.position()
+        if self.annotation_mode:
+            if event.button() == Qt.LeftButton:
+                pt = (float(event.position().x()), float(event.position().y()))
+                self.active_stroke = [pt]
+                self.update()
+            return
+
         if event.button() == Qt.LeftButton:
             self.is_orbiting = True
         elif event.button() in (Qt.MiddleButton, Qt.RightButton):
             self.is_panning = True
 
     def mouseReleaseEvent(self, event):
+        if self.annotation_mode:
+            if self.active_stroke:
+                stroke_entry = {
+                    "tool": self.current_tool,
+                    "points": list(self.active_stroke),
+                    "color": self.active_color,
+                    "label": self.current_region_label,
+                    "radius": self.brush_radius,
+                }
+                self.annotation_strokes.append(stroke_entry)
+                self.active_stroke.clear()
+                self.update()
+            return
+
         self.is_orbiting = False
         self.is_panning = False
         self.last_mouse_pos = None
 
     def mouseMoveEvent(self, event):
+        if self.annotation_mode:
+            if event.buttons() & Qt.LeftButton:
+                pt = (float(event.position().x()), float(event.position().y()))
+                self.active_stroke.append(pt)
+                self.update()
+            return
+
         if self.last_mouse_pos is None:
             return
 
@@ -143,6 +217,16 @@ class Viewport3DWidget(QWidget):
             self.update()
 
     def wheelEvent(self, event):
+        if self.annotation_mode:
+            # Adjust brush radius with mouse wheel
+            delta = event.angleDelta().y()
+            if delta > 0:
+                self.brush_radius = min(50.0, self.brush_radius + 2.0)
+            else:
+                self.brush_radius = max(4.0, self.brush_radius - 2.0)
+            self.update()
+            return
+
         delta = event.angleDelta().y()
         zoom_factor = 0.9 if delta > 0 else 1.1
         self.distance = np.clip(self.distance * zoom_factor, 0.4, 20.0)
@@ -187,8 +271,170 @@ class Viewport3DWidget(QWidget):
             for pt in pts2d:
                 painter.drawEllipse(QPointF(pt[0], pt[1]), 3.0, 3.0)
 
+        # Draw 3D Surface Selection Preview with Falloff
+        if self.surface_selection_preview and self.cloth_geometry:
+            self._draw_surface_selection_preview(painter)
+
+        # Draw 2D Annotation Strokes
+        self._draw_annotation_overlay(painter)
+
         # Viewport HUD Overlay
         self._draw_hud(painter)
+
+    def _draw_surface_selection_preview(self, painter: QPainter):
+        """Highlight active 3D surface vertices with glowing manifold falloff colors."""
+        sel = self.surface_selection_preview
+        if not hasattr(sel, "vertex_weights") or not sel.vertex_weights:
+            return
+
+        verts = self.cloth_geometry.vertices
+        pts2d, z_vals = self.project_3d_to_2d(verts)
+
+        for v_idx, w in sel.vertex_weights.items():
+            if v_idx >= len(pts2d) or z_vals[v_idx] < 0.1:
+                continue
+            p = pts2d[v_idx]
+            alpha = int(np.clip(w * 240, 40, 255))
+            radius = 3.0 + w * 4.0
+
+            # Yellow-orange glowing selection
+            painter.setPen(QPen(QColor(255, 220, 50, alpha), 1))
+            painter.setBrush(QBrush(QColor(255, 120, 0, alpha)))
+            painter.drawEllipse(QPointF(p[0], p[1]), radius, radius)
+
+    def _draw_annotation_overlay(self, painter: QPainter):
+        """Draw 2D annotation layers, brush paths, arrows, and outlines."""
+        for stroke in self.annotation_strokes:
+            tool = stroke["tool"]
+            pts = stroke["points"]
+            color = stroke["color"]
+            radius = stroke.get("radius", 14.0)
+
+            if tool == "brush" and pts:
+                painter.setPen(Qt.NoPen)
+                painter.setBrush(QBrush(color))
+                for pt in pts:
+                    painter.drawEllipse(QPointF(pt[0], pt[1]), radius, radius)
+
+            elif tool == "outline" and len(pts) > 1:
+                pen = QPen(color, 2, Qt.DashLine)
+                painter.setPen(pen)
+                painter.setBrush(QBrush(QColor(color.red(), color.green(), color.blue(), 50)))
+                poly = QPolygonF([QPointF(x, y) for x, y in pts])
+                painter.drawPolygon(poly)
+
+            elif tool == "arrow" and len(pts) >= 2:
+                pen = QPen(color, 3)
+                painter.setPen(pen)
+                p_start = QPointF(pts[0][0], pts[0][1])
+                p_end = QPointF(pts[-1][0], pts[-1][1])
+                painter.drawLine(p_start, p_end)
+                painter.setBrush(QBrush(color))
+                painter.drawEllipse(p_end, 5.0, 5.0)
+
+            elif tool == "text" and pts:
+                painter.setPen(QPen(QColor(255, 255, 255), 1))
+                painter.setFont(QFont("Segoe UI", 10, QFont.Bold))
+                painter.drawText(int(pts[0][0]) + 5, int(pts[0][1]) - 5, stroke.get("label", "Note"))
+
+        # Draw active stroke currently being drawn
+        if self.active_stroke:
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QBrush(self.active_color))
+            for pt in self.active_stroke:
+                painter.drawEllipse(QPointF(pt[0], pt[1]), self.brush_radius, self.brush_radius)
+
+    def get_camera_parameters(self) -> Any:
+        """Construct CameraParameters dataclass representing current viewport camera."""
+        from autonomous_cfx.core.annotation_bundle import CameraParameters
+        return CameraParameters(
+            yaw=self.yaw,
+            pitch=self.pitch,
+            distance=self.distance,
+            target=(float(self.target[0]), float(self.target[1]), float(self.target[2])),
+            fov=1.8,
+            width=self.width(),
+            height=self.height(),
+            view_matrix=[],
+            projection_matrix=[]
+        )
+
+    def capture_annotation_bundle(
+        self,
+        bundle_dir: str,
+        shot_name: str = "shot010",
+        garment_name: str = "jacket",
+        version: str = "v001",
+        note_text: str = ""
+    ) -> Any:
+        """Capture versioned annotation bundle with clean render, mask, depth and face ID buffers."""
+        import os
+        from PySide6.QtGui import QImage
+        from autonomous_cfx.core.annotation_bundle import AnnotationBundle, AnnotationRegion
+        from autonomous_cfx.core.surface_mapping import ImageToSurfaceMapper
+
+        os.makedirs(bundle_dir, exist_ok=True)
+        w, h = max(100, self.width()), max(100, self.height())
+        cam_params = self.get_camera_parameters()
+
+        # 1. Clean Render
+        clean_img = QImage(w, h, QImage.Format_ARGB32)
+        clean_img.fill(QColor(22, 24, 29))
+        p_clean = QPainter(clean_img)
+        p_clean.setRenderHint(QPainter.Antialiasing)
+        if self.cloth_geometry:
+            self._draw_mesh(p_clean, self.cloth_geometry, QColor(230, 150, 40, 200), QColor(255, 200, 100, 160))
+        p_clean.end()
+        clean_path = os.path.join(bundle_dir, "clean_render.png")
+        clean_img.save(clean_path)
+
+        # 2. Annotation Overlay Image
+        overlay_img = QImage(w, h, QImage.Format_ARGB32)
+        overlay_img.fill(QColor(0, 0, 0, 0))
+        p_over = QPainter(overlay_img)
+        p_over.setRenderHint(QPainter.Antialiasing)
+        self._draw_annotation_overlay(p_over)
+        p_over.end()
+        overlay_path = os.path.join(bundle_dir, "annotation_overlay.png")
+        overlay_img.save(overlay_path)
+
+        # 3. Rasterize Depth Buffer & Face ID Buffer
+        depth_path = os.path.join(bundle_dir, "depth_buffer.npy")
+        face_id_path = os.path.join(bundle_dir, "face_id_buffer.npy")
+        if self.cloth_geometry:
+            depth_buf, face_id_buf = ImageToSurfaceMapper.rasterize_viewport_buffers(self.cloth_geometry, cam_params)
+            np.save(depth_path, depth_buf)
+            np.save(face_id_path, face_id_buf)
+
+        # 4. Create Annotation Regions
+        regions: List[AnnotationRegion] = []
+        for i, s in enumerate(self.annotation_strokes):
+            reg = AnnotationRegion(
+                region_id=f"reg_{i+1:02d}",
+                label=s.get("label", "Defect Region"),
+                intent_description=note_text if i == 0 and note_text else s.get("label", ""),
+                drawing_tool=s.get("tool", "brush"),
+                stroke_points=s.get("points", []),
+                is_protected="protect" in s.get("label", "").lower() or "cuff" in s.get("label", "").lower()
+            )
+            regions.append(reg)
+
+        bundle = AnnotationBundle(
+            bundle_id=f"bundle_{int(time.time())}",
+            shot_name=shot_name,
+            garment_name=garment_name,
+            geometry_version=version,
+            frame=self.current_frame,
+            time_seconds=float(self.current_frame - 1) / 24.0,
+            camera=cam_params,
+            regions=regions,
+            clean_image_path=clean_path,
+            annotation_overlay_path=overlay_path,
+            depth_buffer_path=depth_path,
+            face_id_buffer_path=face_id_path
+        )
+        bundle.save(bundle_dir)
+        return bundle
 
     def _draw_grid(self, painter: QPainter):
         """Draw 3D floor grid at y = 0."""
