@@ -105,6 +105,25 @@ class BehaviorParser:
             traits.append("Low Damping")
             rationale.append("Reduced damping for lively, dynamic motion.")
 
+        # 7. Analyze aerodynamic forces & wind
+        if re.search(r"\b(wind|breeze|gust|mountain air|gale)\b", text):
+            if "mountain" in text or "mountain air" in text:
+                props.wind_velocity = (2.5, 0.0, 1.2)
+            elif "strong" in text or "gale" in text:
+                props.wind_velocity = (5.0, 0.0, 2.0)
+            elif "breeze" in text:
+                props.wind_velocity = (1.5, 0.0, 0.5)
+            else:
+                props.wind_velocity = (2.0, 0.0, 1.0)
+
+            if "gust" in text or "gusty" in text:
+                props.wind_gust = 0.40
+                traits.append("Gusty Aerodynamic Wind")
+                rationale.append("Enabled aerodynamic drag with gust oscillation amplitude 0.40.")
+            else:
+                traits.append("Aerodynamic Wind")
+                rationale.append(f"Configured 3D wind velocity vector {props.wind_velocity} m/s.")
+
         logger.info(f"Parsed behavior prompt: '{prompt}' -> {detected_mat} ({len(traits)} traits)")
         return BehaviorParseResult(
             prompt=prompt,

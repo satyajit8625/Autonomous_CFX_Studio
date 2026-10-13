@@ -41,6 +41,7 @@ class MeshGeometry:
     uvs: Optional[np.ndarray] = None
     normals: Optional[np.ndarray] = None
     vertex_groups: Dict[str, np.ndarray] = field(default_factory=dict)
+    face_sets: Dict[str, np.ndarray] = field(default_factory=dict)
 
     def __post_init__(self):
         if not isinstance(self.vertices, np.ndarray):
@@ -73,6 +74,7 @@ class MeshGeometry:
             uvs=np.copy(self.uvs) if self.uvs is not None else None,
             normals=np.copy(self.normals) if self.normals is not None else None,
             vertex_groups={k: np.copy(v) for k, v in self.vertex_groups.items()},
+            face_sets={k: np.copy(v) for k, v in self.face_sets.items()},
         )
 
     def get_bounding_box(self) -> BoundingBox:

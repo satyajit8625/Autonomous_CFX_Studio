@@ -324,6 +324,26 @@ class AlembicShotImporter:
                 idx_offset += count
             triangles_np = np.array(triangles, dtype=np.int32) if triangles else np.zeros((0, 3), dtype=np.int32)
 
+            # Extract UVs if available
+            mesh_uvs = None
+            uv_param = schema.getUVsParam()
+            if uv_param.valid():
+                try:
+                    uv_expanded = uv_param.getExpandedValue(Abc.ISampleSelector(0))
+                    mesh_uvs = np.ctypeslib.as_array(uv_expanded.getVals()).copy()
+                except Exception:
+                    pass
+
+            # Extract FaceSets if available
+            face_sets_dict = {}
+            try:
+                for fs_name in schema.getFaceSetNames():
+                    fs_obj = schema.getFaceSet(fs_name)
+                    fs_faces = np.ctypeslib.as_array(fs_obj.getSchema().getValue().getFaces()).copy()
+                    face_sets_dict[fs_name] = fs_faces
+            except Exception:
+                pass
+
             animated_frames: List[MeshGeometry] = []
             for s_idx in range(num_samples):
                 s = schema.getValue(Abc.ISampleSelector(s_idx))
@@ -340,6 +360,8 @@ class AlembicShotImporter:
                 frame_mesh = MeshGeometry(
                     vertices=pos_world,
                     faces=triangles_np,
+                    uvs=mesh_uvs,
+                    face_sets=face_sets_dict,
                     name=f"{node.name}_f{s_idx + 1}"
                 )
                 animated_frames.append(frame_mesh)
@@ -419,12 +441,40 @@ class AlembicShotExporter:
                 counts_buf = imath.IntArrayFromBuffer(face_counts_np)
                 indices_buf = imath.IntArrayFromBuffer(face_indices_np)
 
+                has_uvs = frame_meshes[0].uvs is not None and len(frame_meshes[0].uvs) > 0
+                uv_sample = None
+                if has_uvs:
+                    try:
+                        uvs_np = frame_meshes[0].uvs.astype(np.float32)
+                        uv_buf = imath.V2fArrayFromBuffer(uvs_np)
+                        scope = (
+                            AbcGeom.GeometryScope.kVertexScope
+                            if len(uvs_np) == len(frame_meshes[0].vertices)
+                            else AbcGeom.GeometryScope.kFacevaryingScope
+                        )
+                        uv_sample = AbcGeom.OV2fGeomParamSample(uv_buf, scope)
+                    except Exception:
+                        pass
+
                 for mesh_frame in frame_meshes:
                     verts_f32 = mesh_frame.vertices.astype(np.float32)
                     pos_buf = imath.V3fArrayFromBuffer(verts_f32)
 
                     sample = AbcGeom.OPolyMeshSchemaSample(pos_buf, indices_buf, counts_buf)
+                    if uv_sample is not None:
+                        sample.setUVs(uv_sample)
                     mesh_schema.set(sample)
+
+                # Export face sets for garment if present
+                if hasattr(frame_meshes[0], "face_sets") and frame_meshes[0].face_sets:
+                    for fs_name, fs_faces in frame_meshes[0].face_sets.items():
+                        try:
+                            out_fs = AbcGeom.OFaceSet(mesh_obj, fs_name, ts_index)
+                            fs_s = AbcGeom.OFaceSetSchemaSample()
+                            fs_s.setFaces(imath.IntArrayFromBuffer(fs_faces.astype(np.int32)))
+                            out_fs.getSchema().set(fs_s)
+                        except Exception:
+                            pass
 
             # Preserve unmodified props/colliders if full shot export requested
             if full_shot_export and source_alembic_path and os.path.exists(source_alembic_path):
@@ -443,10 +493,13 @@ class AlembicShotExporter:
                     if AbcGeom.IXform.matches(meta):
                         in_xform = AbcGeom.IXform(in_obj.getParent(), name)
                         out_xform = AbcGeom.OXform(out_parent, name, ts_index)
-                        s = in_xform.getSchema().getValue()
-                        out_xs = AbcGeom.XformSample()
-                        out_xs.setMatrix(s.getMatrix())
-                        out_xform.getSchema().set(out_xs)
+                        in_xs = in_xform.getSchema()
+                        num_x_samples = in_xs.getNumSamples()
+                        for s_i in range(max(1, num_x_samples)):
+                            s = in_xs.getValue(Abc.ISampleSelector(s_i))
+                            out_xs = AbcGeom.XformSample()
+                            out_xs.setMatrix(s.getMatrix())
+                            out_xform.getSchema().set(out_xs)
 
                         for i in range(in_obj.getNumChildren()):
                             _copy_unmodified(in_obj.getChild(i), out_xform)
@@ -458,13 +511,34 @@ class AlembicShotExporter:
                         out_schema = out_mesh.getSchema()
 
                         num_s = in_schema.getNumSamples()
+                        in_uv_param = in_schema.getUVsParam()
+                        has_uvs_unmod = in_uv_param.valid()
+
                         for s_i in range(num_s):
                             in_s = in_schema.getValue(Abc.ISampleSelector(s_i))
                             pos = in_s.getPositions()
                             ind = in_s.getFaceIndices()
                             cnt = in_s.getFaceCounts()
                             out_s = AbcGeom.OPolyMeshSchemaSample(pos, ind, cnt)
+                            if has_uvs_unmod:
+                                try:
+                                    uv_exp = in_uv_param.getExpandedValue(Abc.ISampleSelector(s_i))
+                                    uv_samp = AbcGeom.OV2fGeomParamSample(uv_exp.getVals(), uv_exp.getScope())
+                                    out_s.setUVs(uv_samp)
+                                except Exception:
+                                    pass
                             out_schema.set(out_s)
+
+                        # Copy FaceSets for unmodified poly mesh
+                        try:
+                            for fs_name in in_schema.getFaceSetNames():
+                                in_fs = in_schema.getFaceSet(fs_name)
+                                out_fs = AbcGeom.OFaceSet(out_mesh, fs_name, ts_index)
+                                fs_s = AbcGeom.OFaceSetSchemaSample()
+                                fs_s.setFaces(in_fs.getSchema().getValue().getFaces())
+                                out_fs.getSchema().set(fs_s)
+                        except Exception:
+                            pass
 
                     else:
                         for i in range(in_obj.getNumChildren()):

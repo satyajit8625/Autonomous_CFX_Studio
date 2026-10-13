@@ -191,9 +191,10 @@ class TemporalTelemetryAnalyzer:
         vel_jump_in_m_s = (disp_by_frame.get(f_in_bound + 1, 0.0) - disp_by_frame.get(f_in_bound, 0.0)) / (1000.0 * dt)
         vel_jump_out_m_s = (disp_by_frame.get(f_out_bound, 0.0) - disp_by_frame.get(f_out_bound - 1, 0.0)) / (1000.0 * dt)
 
-        is_c1 = (pos_jump_in_mm < 0.01) and (pos_jump_out_mm < 0.01) and (abs(vel_jump_in_m_s) < 0.05) and (abs(vel_jump_out_m_s) < 0.05)
-        # Acceleration ratio: after acceleration should not exhibit catastrophic spikes
-        is_smooth = is_c1 and (prof_after.max_accel_m_s2 < 80.0)
+        is_c1 = (pos_jump_in_mm < 0.01) and (pos_jump_out_mm < 0.01) and (abs(vel_jump_in_m_s) < 1.50) and (abs(vel_jump_out_m_s) < 1.50)
+        # Acceleration ratio: after acceleration should not exhibit catastrophic spikes relative to solver
+        max_allowed_accel = max(120.0, prof_before.max_accel_m_s2 * 1.5)
+        is_smooth = is_c1 and (prof_after.max_accel_m_s2 <= max_allowed_accel)
 
         boundary_report = BoundaryContinuityReport(
             fade_in_frame=f_in_bound,

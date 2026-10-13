@@ -9,9 +9,10 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 import numpy as np
-import trimesh
+from scipy.spatial import KDTree
 
 from autonomous_cfx.core.geometry import MeshGeometry, BoundingBox
+from autonomous_cfx.core.collision_detector import point_triangle_closest_point
 from autonomous_cfx.core.logger import logger
 
 
@@ -160,19 +161,29 @@ class AnimatedMeshCollider(Collider):
         self._update_mesh_cache()
 
     def _update_mesh_cache(self) -> None:
-        """Update Trimesh instance and bounding box."""
+        """Update spatial tree, vertex normals, and bounding box."""
         if len(self.current_vertices) == 0 or len(self.geometry.faces) == 0:
             return
 
-        self._trimesh_cache = trimesh.Trimesh(
-            vertices=self.current_vertices,
-            faces=self.geometry.faces,
-            process=False,
-        )
         self._aabb = BoundingBox(
             min_point=np.min(self.current_vertices, axis=0),
             max_point=np.max(self.current_vertices, axis=0),
         )
+
+        faces = self.geometry.faces
+        v0 = self.current_vertices[faces[:, 0]]
+        v1 = self.current_vertices[faces[:, 1]]
+        v2 = self.current_vertices[faces[:, 2]]
+        face_cross = np.cross(v1 - v0, v2 - v0)
+
+        vert_normals = np.zeros_like(self.current_vertices, dtype=np.float32)
+        for i in range(3):
+            np.add.at(vert_normals, faces[:, i], face_cross)
+
+        norms = np.linalg.norm(vert_normals, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0
+        self._vertex_normals = (vert_normals / norms).astype(np.float32)
+        self._vertex_tree = KDTree(self.current_vertices)
 
     def project_points(
         self,
@@ -188,7 +199,7 @@ class AnimatedMeshCollider(Collider):
 
         self.last_measurement = CollisionMeasurement()
 
-        if self._trimesh_cache is None or self._aabb is None or N == 0:
+        if not hasattr(self, "_vertex_tree") or self._vertex_tree is None or self._aabb is None or N == 0:
             return contact_mask, projected, contact_normals, collider_velocities
 
         # Step 1: Broadphase AABB query
@@ -199,54 +210,46 @@ class AnimatedMeshCollider(Collider):
         candidate_indices = np.where(candidate_mask)[0]
         candidate_pts = points[candidate_indices]
 
-        # Step 2: Proximity query on candidates using Trimesh
-        try:
-            closest_pts, distances, triangle_ids = trimesh.proximity.closest_point(
-                self._trimesh_cache, candidate_pts
-            )
+        # Step 2: Vectorized proximity query using vertex KDTree
+        _, closest_v_idx = self._vertex_tree.query(candidate_pts)
+        closest_pts = self.current_vertices[closest_v_idx]
+        target_normals = self._vertex_normals[closest_v_idx]
 
-            # Triangle normals
-            tri_normals = self._trimesh_cache.face_normals[triangle_ids]
+        diff = candidate_pts - closest_pts
+        signed_dist = np.sum(diff * target_normals, axis=1)
 
-            # Vector from closest surface point to cloth point
-            diff = candidate_pts - closest_pts
-            # Signed distance based on face normal dot product (< 0 means inside collider mesh)
-            signed_dist = np.sum(diff * tri_normals, axis=1)
+        # Contact is anything within margin
+        is_contact = signed_dist < margin
+        # True penetration is strictly inside collider body (signed_dist < 0.0)
+        is_true_pen = signed_dist < 0.0
 
-            # Contact is anything within margin
-            is_contact = signed_dist < margin
-            # True penetration is strictly inside collider surface (signed_dist < 0.0)
-            is_true_pen = signed_dist < 0.0
+        if np.any(is_contact):
+            contact_cand_idx = candidate_indices[is_contact]
+            contact_mask[contact_cand_idx] = True
 
-            if np.any(is_contact):
-                contact_cand_idx = candidate_indices[is_contact]
-                contact_mask[contact_cand_idx] = True
+            active_normals = target_normals[is_contact]
+            corrected_pts = closest_pts[is_contact] + active_normals * margin
+            projected[contact_cand_idx] = corrected_pts
+            contact_normals[contact_cand_idx] = active_normals
 
-                target_normals = tri_normals[is_contact]
-                corrected_pts = closest_pts[is_contact] + target_normals * margin
-                projected[contact_cand_idx] = corrected_pts
-                contact_normals[contact_cand_idx] = target_normals
+            # Collider motion velocity
+            if len(self.prev_vertices) == len(self.current_vertices):
+                active_v_idx = closest_v_idx[is_contact]
+                tri_v_curr = self.current_vertices[active_v_idx]
+                tri_v_prev = self.prev_vertices[active_v_idx]
+                collider_velocities[contact_cand_idx] = (tri_v_curr - tri_v_prev) * self.fps
 
-                # Collider motion velocity
-                if len(self.prev_vertices) == len(self.current_vertices):
-                    triangles = self.geometry.faces[triangle_ids[is_contact]]
-                    tri_v_curr = np.mean(self.current_vertices[triangles], axis=1)
-                    tri_v_prev = np.mean(self.prev_vertices[triangles], axis=1)
-                    collider_velocities[contact_cand_idx] = (tri_v_curr - tri_v_prev) * self.fps
+        # Record raw physical measurements
+        true_pen_indices = candidate_indices[is_true_pen]
+        raw_depths = -signed_dist[is_true_pen] if np.any(is_true_pen) else np.zeros(0)
+        max_raw = float(np.max(raw_depths)) if len(raw_depths) > 0 else 0.0
 
-            # Record raw measurements
-            true_pen_indices = candidate_indices[is_true_pen]
-            raw_depths = -signed_dist[is_true_pen] if np.any(is_true_pen) else np.zeros(0)
-            max_raw = float(np.max(raw_depths)) if len(raw_depths) > 0 else 0.0
-
-            self.last_measurement = CollisionMeasurement(
-                contact_count=int(np.sum(is_contact)),
-                margin_intrusion_depth=float(np.max(np.maximum(0.0, margin - signed_dist))) if np.any(is_contact) else 0.0,
-                true_penetration_count=int(len(true_pen_indices)),
-                raw_max_penetration_depth=max_raw,
-                penetrating_vertex_ids=list(true_pen_indices),
-            )
-        except Exception as e:
-            logger.debug(f"Proximity test fallback: {e}")
+        self.last_measurement = CollisionMeasurement(
+            contact_count=int(np.sum(is_contact)),
+            margin_intrusion_depth=float(np.max(np.maximum(0.0, margin - signed_dist))) if np.any(is_contact) else 0.0,
+            true_penetration_count=int(len(true_pen_indices)),
+            raw_max_penetration_depth=max_raw,
+            penetrating_vertex_ids=list(true_pen_indices),
+        )
 
         return contact_mask, projected, contact_normals, collider_velocities

@@ -56,6 +56,9 @@ from autonomous_cfx.core.approval import ApprovalAuthority, ApprovalGatekeeper, 
 from autonomous_cfx.core.collision_detector import PenetrationClassifier
 from autonomous_cfx.core.geometry import MeshGeometry
 from autonomous_cfx.core.surface_mapping import ImageToSurfaceMapper, SurfaceSelection
+from autonomous_cfx.simulation.colliders import AnimatedMeshCollider
+from autonomous_cfx.simulation.properties import ClothMaterialProperties
+from autonomous_cfx.simulation.engine import SimulationEngine
 from autonomous_cfx.simulation.corrective_layer import CorrectiveLayerEngine, CorrectionTelemetry
 from autonomous_cfx.simulation.temporal_telemetry import TemporalTelemetryAnalyzer
 
@@ -311,34 +314,50 @@ def run_real_local_model_acceptance():
             "prompt_coverage": coverage_report.to_dict(),
         }
 
-    # Simulate and introduce defect during swinging arm contact (frames 8-15)
-    with AcceptanceStepTimer("Scenario 1: Simulation Run & Defect Identification", timeout_seconds=30.0):
-        penetrating_v_idx = 180  # Upper left sleeve vertex
-        defect_indices = [penetrating_v_idx, penetrating_v_idx + 1, penetrating_v_idx - 1]
+    # Live XPBD Simulation Run with Animated Collar Attachment & Aerodynamic Wind
+    with AcceptanceStepTimer("Scenario 1: Live Physics Simulation & Defect Identification", timeout_seconds=45.0):
+        # Build physical properties directly from validated LLM tool arguments
+        sim_props = ClothMaterialProperties(
+            density=float(args.get("density", 0.45)),
+            stretch_compliance=float(args.get("stretch_compliance", 1e-5)),
+            bend_compliance=float(args.get("bend_compliance", 0.01)),
+            damping=float(args.get("damping", 0.08)),
+            friction=float(args.get("friction", 0.35)),
+            wind_velocity=tuple(active_params.get("wind_velocity", (2.5, 0.0, 1.2))),
+            wind_gust=float(active_params.get("gust_amplitude", 0.40)),
+            solver_substeps=8,
+        )
 
-        sim_frames: List[MeshGeometry] = []
-        for f in range(1, num_frames + 1):
-            v_curr = np.copy(coat_frames[f - 1].vertices)
-            if 8 <= f <= 15:
-                # Intrudes exactly 18.00 mm into swinging character arm volume along inward normal
-                b_geom_f = body_frames[f - 1]
-                b_normals = b_geom_f.compute_normals()
-                arm_ref = b_geom_f.vertices[135]
-                arm_n = b_normals[135]
-                v_curr[penetrating_v_idx] = arm_ref - arm_n * 0.018
-                v_curr[penetrating_v_idx + 1] = arm_ref - arm_n * 0.012
-            sim_frames.append(MeshGeometry(name=f"sim_coat_f{f}", vertices=v_curr, faces=coat_mesh.faces))
+        collar_v = np.where(coat_mesh.vertices[:, 1] >= 1.45)[0].tolist()
+        body_col = AnimatedMeshCollider("hero_body", base_geometry=body_base, animation_frames=body_dict, fps=fps)
 
-        # Explicitly measure defect with matching scope and PenetrationClassifier
-        raw_pen_before_mm = CorrectiveLayerEngine._measure_penetration_depth(
+        sim_engine = SimulationEngine(
+            cloth_geometry=coat_mesh,
+            properties=sim_props,
+            colliders=[body_col],
+            pinned_vertices=collar_v,
+            fps=fps,
+            start_frame=1,
+            end_frame=num_frames,
+        )
+        sim_cache = sim_engine.run()
+        sim_frames = [sim_cache.get_frame_geometry(f) for f in range(1, num_frames + 1)]
+
+        # Explicitly evaluate real collision defect at frame 10 using PenetrationClassifier
+        pen_eval_before = PenetrationClassifier.evaluate_penetration(
             sim_frames[9],
             body_frames[9],
             margin=0.008,
-            target_indices=defect_indices,
         )
-        print(f"  [OK] Measured Defect at Frame 10 (Target Region: Left Sleeve, Scope: /shot020/hero_shearling_coat):", flush=True)
-        print(f"    - Raw Penetration Depth: {raw_pen_before_mm:.2f} mm (Collision Margin: 8.00 mm)", flush=True)
-        assert raw_pen_before_mm >= 15.0, f"Expected ~15-18 mm penetration defect, got {raw_pen_before_mm}"
+        defect_indices = pen_eval_before.penetrating_indices
+        raw_pen_before_mm = pen_eval_before.max_penetration_mm
+
+        print(f"  [OK] Evaluated Real Numerical Simulation Defect at Frame 10:", flush=True)
+        print(f"    - Scope: /shot020/hero_shearling_coat against /shot020/characters/hero_body", flush=True)
+        print(f"    - Penetrating Vertices: {len(defect_indices)} vertices (Indices: {defect_indices[:8]}...)", flush=True)
+        print(f"    - Max Volumetric Penetration: {raw_pen_before_mm:.2f} mm (Collision Margin: 8.00 mm)", flush=True)
+        print(f"    - Max Margin Intrusion: {pen_eval_before.max_margin_penetration_mm:.2f} mm", flush=True)
+        assert raw_pen_before_mm >= 15.0, f"Expected physical penetration defect, got {raw_pen_before_mm} mm"
 
     # Render BOTH Unmarked and Annotated Images for Live Vision Model Inspection
     with AcceptanceStepTimer("Scenario 1: Dual-Image Vision Model Validation (Unmarked & Annotated)", timeout_seconds=60.0):
@@ -429,12 +448,24 @@ def run_real_local_model_acceptance():
     # Autonomous Diagnosis from Actual Numerical Solver Telemetry Table
     with AcceptanceStepTimer("Scenario 1: Autonomous Diagnosis from Raw Numerical Telemetry", timeout_seconds=60.0):
         # Construct raw numerical telemetry table from actual solver measurements
+        vel_f10 = sim_cache.velocities.get(10, np.zeros_like(sim_frames[9].vertices))
+        sorted_records = sorted(pen_eval_before.records, key=lambda r: r.penetration_depth_mm, reverse=True)
+        top_records = sorted_records[:4] if sorted_records else []
+
+        table_rows = []
+        for r in top_records:
+            v_idx = r.vertex_index
+            v_mag = float(np.linalg.norm(vel_f10[v_idx])) if v_idx < len(vel_f10) else 0.0
+            n_str = f"[{r.surface_normal[0]:.3f}, {r.surface_normal[1]:.3f}, {r.surface_normal[2]:.3f}]"
+            table_rows.append(
+                f"| 10    | {v_idx:<9} | hero_shearling_coat  | hero_body_arm     | {r.penetration_depth_mm:<34.2f} | {-r.penetration_depth_mm:<22.2f} | {n_str:<28} | {v_mag:<28.3f} |"
+            )
+
         raw_telemetry_table = (
             "Raw Solver Collision Telemetry Table:\n"
             "| Frame | Vertex ID | Target Garment Scope | Contact Collider | Volumetric Penetration Depth (mm) | Margin Clearance (mm) | Contact Normal [Nx, Ny, Nz] | Max Temporal Velocity (m/s) |\n"
-            f"| 10    | 180       | hero_shearling_coat  | hero_body_arm     | {raw_pen_before_mm:.2f}                            | {-raw_pen_before_mm:.2f}                 | [0.824, 0.151, -0.546]       | 0.420                        |\n"
-            f"| 10    | 181       | hero_shearling_coat  | hero_body_arm     | 12.00                             | -12.00                 | [0.819, 0.158, -0.551]       | 0.380                        |\n"
-            f"| 10    | 179       | hero_shearling_coat  | hero_body_arm     | 9.50                              | -9.50                  | [0.831, 0.142, -0.539]       | 0.410                        |\n"
+            + "\n".join(table_rows)
+            + "\n"
         )
         print(f"  Submitting Raw Numerical Telemetry Table to Live qwen2.5-coder:7b:", flush=True)
         print(raw_telemetry_table, flush=True)
@@ -451,7 +482,7 @@ def run_real_local_model_acceptance():
         report_data["scenarios"]["scenario_1_unfamiliar_prompt"]["autonomous_diagnosis"] = {
             "raw_measurements_supplied": raw_telemetry_table,
             "model_proposed_cause": diag_reply.strip(),
-            "executed_action": "Execute non-destructive bounded de-penetration layer on vertices [180, 181, 179] with geodesic falloff (r=0.06m) and protected cuff preservation.",
+            "executed_action": f"Execute non-destructive bounded de-penetration layer on {len(defect_indices)} penetrated vertices with geodesic falloff (r=0.06m) and protected collar/cuff preservation.",
         }
 
     # Bounded 3D Corrective Layer & Temporal Smoothness Telemetry
@@ -464,12 +495,14 @@ def run_real_local_model_acceptance():
             falloff_radius=0.06,
             garment_name="hero_shearling_coat",
         )
-        # Cuff protection
+        # Cuff and unpenetrated collar protection
         cuff_vertices = list(range(96, 112))  # Wrist cuff vertices
+        collar_protected = [v for v in collar_v if v not in defect_indices]
+        prot_vertices = sorted(list(set(cuff_vertices + collar_protected)))
         prot_sel = SurfaceSelection(
             selected_faces=[],
-            selected_vertices=cuff_vertices,
-            vertex_weights={v: 1.0 for v in cuff_vertices},
+            selected_vertices=prot_vertices,
+            vertex_weights={v: 1.0 for v in prot_vertices},
             falloff_radius=0.0,
             garment_name="hero_shearling_coat",
         )
@@ -513,7 +546,7 @@ def run_real_local_model_acceptance():
             target_indices=defect_indices,
         )
 
-        print(f"  [OK] Matching Scope Defect Evaluation (Frame 10, Target: Left Sleeve, Margin: 8.00 mm):", flush=True)
+        print(f"  [OK] Matching Scope Defect Evaluation (Frame 10, Target: Sleeve / Arm Contact Area, Margin: 8.00 mm):", flush=True)
         print(f"    - Raw Penetration Before: {raw_pen_before_mm:.2f} mm", flush=True)
         print(f"    - Raw Penetration After:  {raw_pen_after_mm:.2f} mm (TOLERANCE MET <= 0.50 mm)", flush=True)
         print(f"    - Displacement Outside Region: {telemetry.max_displacement_outside_region_mm:.4f} mm", flush=True)

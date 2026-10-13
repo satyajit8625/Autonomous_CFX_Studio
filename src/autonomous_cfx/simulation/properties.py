@@ -21,6 +21,11 @@ class ClothMaterialProperties:
     air_drag: float = 0.01            # Aerodynamic resistance
     solver_substeps: int = 15         # Recommended XPBD substeps per simulation frame
     solver_iterations: int = 4        # XPBD constraint iterations per substep
+    wind_velocity: Tuple[float, float, float] = (0.0, 0.0, 0.0)  # 3D wind velocity in m/s
+    wind_gust: float = 0.0            # Gust oscillation amplitude factor [0, 1]
+    wind_frequency: float = 1.2       # Gust oscillation frequency in Hz
+    air_density: float = 1.225        # Ambient air density in kg/m^3
+    drag_coefficient: float = 1.0     # Dimensionless cloth aerodynamic drag coefficient Cd
 
     @classmethod
     def get_presets(cls) -> Dict[str, ClothMaterialProperties]:

@@ -4,13 +4,14 @@ Orchestrates multi-frame solver progression, initial penetration healing, and ca
 
 from __future__ import annotations
 
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Union
 import numpy as np
 
 from autonomous_cfx.core.geometry import MeshGeometry
 from autonomous_cfx.core.cache_io import SimulationCache
 from autonomous_cfx.simulation.xpbd_solver import XPBDSolver
-from autonomous_cfx.simulation.colliders import Collider
+from autonomous_cfx.simulation.constraints import AnimatedAttachment
+from autonomous_cfx.simulation.colliders import Collider, AnimatedMeshCollider
 from autonomous_cfx.simulation.properties import ClothMaterialProperties
 from autonomous_cfx.core.logger import logger
 
@@ -27,6 +28,7 @@ class SimulationEngine:
         fps: float = 24.0,
         start_frame: int = 1,
         end_frame: int = 40,
+        attachments: Optional[List[AnimatedAttachment]] = None,
     ):
         self.cloth_geometry = cloth_geometry.copy()
         self.props = properties or ClothMaterialProperties()
@@ -35,6 +37,7 @@ class SimulationEngine:
         self.fps = fps
         self.start_frame = start_frame
         self.end_frame = end_frame
+        self.attachments = attachments or []
         self.cancel_requested: bool = False
 
     def pre_relax_initial_penetrations(self, solver: XPBDSolver, iterations: int = 10) -> int:
@@ -50,6 +53,8 @@ class SimulationEngine:
                 if np.any(valid_mask):
                     solver.positions[valid_mask] = proj_pts[valid_mask]
                     total_pushed += int(np.sum(valid_mask))
+            # Relax distance constraints so de-penetration preserves cloth edge rest lengths
+            solver.distance_constraints.project(solver.positions, solver.inv_masses, dt=0.01)
         if total_pushed > 0:
             logger.info(f"Pre-relaxed {total_pushed} initial cloth-collider penetrations at frame {self.start_frame}")
         return total_pushed
@@ -57,6 +62,7 @@ class SimulationEngine:
     def run(
         self,
         progress_callback: Optional[Callable[[int, int, Dict], None]] = None,
+        cancel_check: Optional[Callable[[], bool]] = None,
     ) -> SimulationCache:
         """Execute simulation run over the specified frame range."""
         self.cancel_requested = False
@@ -64,11 +70,26 @@ class SimulationEngine:
         total_frames = (self.end_frame - self.start_frame) + 1
 
         solver = XPBDSolver(self.cloth_geometry, self.props)
-        if self.pinned_vertices:
-            solver.set_pinned_vertices(self.pinned_vertices)
 
         for col in self.colliders:
             solver.add_collider(col)
+
+        # Register explicit attachments
+        for att in self.attachments:
+            solver.add_attachment(att)
+
+        # If pinned vertices were specified without explicit attachment:
+        # If there is an animated mesh collider, attach them kinematically so they move with character
+        if self.pinned_vertices and not self.attachments:
+            anim_colliders = [c for c in self.colliders if isinstance(c, AnimatedMeshCollider)]
+            if anim_colliders:
+                # Kinematically bind to primary animated collider
+                solver.attach_to_collider(self.pinned_vertices, anim_colliders[0], stiffness=1.0)
+            else:
+                solver.set_pinned_vertices(self.pinned_vertices)
+        elif self.pinned_vertices and self.attachments:
+            solver.set_pinned_vertices(self.pinned_vertices)
+
 
         # Pre-resolve initial penetrations at frame 0/start
         self.pre_relax_initial_penetrations(solver)
@@ -95,7 +116,7 @@ class SimulationEngine:
         )
 
         for frame_idx, frame_num in enumerate(range(self.start_frame + 1, self.end_frame + 1), start=2):
-            if self.cancel_requested:
+            if self.cancel_requested or (cancel_check is not None and cancel_check()):
                 logger.warning(f"Simulation cancelled by user at frame {frame_num}")
                 break
 

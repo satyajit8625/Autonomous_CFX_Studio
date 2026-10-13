@@ -97,6 +97,25 @@ TOOL_SCHEMAS: Dict[str, Dict[str, Any]] = {
                 "maximum": 12,
                 "description": "XPBD constraint iterations per substep.",
             },
+            "wind_velocity": {
+                "type": "array",
+                "items": {"type": "number"},
+                "minItems": 3,
+                "maxItems": 3,
+                "description": "3D aerodynamic wind velocity vector in m/s [vx, vy, vz].",
+            },
+            "wind_gust": {
+                "type": "number",
+                "minimum": 0.0,
+                "maximum": 1.0,
+                "description": "Gust oscillation amplitude factor [0, 1].",
+            },
+            "air_drag": {
+                "type": "number",
+                "minimum": 0.0,
+                "maximum": 0.2,
+                "description": "Aerodynamic drag coefficient.",
+            },
             "reasoning": {
                 "type": "string",
                 "description": "Technical rationale for selected physical parameters.",

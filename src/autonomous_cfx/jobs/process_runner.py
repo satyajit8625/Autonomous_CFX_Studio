@@ -60,9 +60,20 @@ def _worker_bootstrap(
         ipc_queue.put({"type": "progress", "stage": stage, "percent": pct, "extra": extra or {}})
 
     try:
-        # Inject progress_callback if target supports it
-        if "progress_callback" in target_fn.__code__.co_varnames:
-            kwargs["progress_callback"] = progress_proxy
+        # Inject progress_callback and cancel_check if target supports them
+        import inspect
+        try:
+            sig = inspect.signature(target_fn)
+            if "progress_callback" in sig.parameters:
+                kwargs["progress_callback"] = progress_proxy
+            if "cancel_check" in sig.parameters:
+                kwargs["cancel_check"] = cancel_event.is_set
+        except Exception:
+            if hasattr(target_fn, "__code__"):
+                if "progress_callback" in target_fn.__code__.co_varnames:
+                    kwargs["progress_callback"] = progress_proxy
+                if "cancel_check" in target_fn.__code__.co_varnames:
+                    kwargs["cancel_check"] = cancel_event.is_set
 
         res = target_fn(*args, **kwargs)
         if cancel_event.is_set():

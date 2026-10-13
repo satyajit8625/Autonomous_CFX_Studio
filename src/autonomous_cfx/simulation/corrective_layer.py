@@ -105,63 +105,34 @@ class CorrectiveLayerEngine:
                 delta_x = np.zeros_like(verts_new, dtype=np.float32)
 
                 if collider is not None:
-                    col_kdtree = KDTree(collider.vertices)
-                    col_normals = collider.compute_normals()
+                    from autonomous_cfx.core.collision_detector import PenetrationClassifier
+                    target_v_list = [v for v, w in spatial_weights.items() if w > 1e-4 and v not in protected_verts]
 
-                    for v_idx, w_spatial in spatial_weights.items():
-                        if w_spatial <= 1e-4 or v_idx in protected_verts:
-                            continue
+                    for _pass in range(2):
+                        temp_geom = MeshGeometry(name="temp", vertices=verts_new, faces=src_mesh.faces)
+                        pen_res = PenetrationClassifier.evaluate_penetration(
+                            temp_geom, collider, margin=collision_margin, target_indices=target_v_list
+                        )
+                        pen_dict = {rec.vertex_index: rec for rec in pen_res.records if rec.is_penetrating}
+                        if not pen_dict:
+                            break
 
-                        p = verts_new[v_idx]
-                        dist, nearest_idx = col_kdtree.query(p)
-                        n = col_normals[nearest_idx]
-                        col_pos = collider.vertices[nearest_idx]
+                        for v_idx, rec in pen_dict.items():
+                            w_spatial = spatial_weights.get(v_idx, 0.0)
+                            target_pt = rec.closest_surface_point + rec.surface_normal * (collision_margin * 1.05)
+                            disp = (target_pt - verts_new[v_idx]) * (w_spatial * w_time)
+                            delta_x[v_idx] += disp
+                            verts_new[v_idx] += disp
 
-                        # Check if inside collider or violating margin
-                        to_cloth = p - col_pos
-                        signed_dist = float(np.dot(to_cloth, n))
-
-                        if signed_dist < collision_margin:
-                            if signed_dist < 0.0:
-                                needed_push = (-signed_dist + collision_margin * w_spatial) * w_time + 0.001
-                            else:
-                                needed_push = (collision_margin - signed_dist) * (w_spatial * w_time)
-                            disp_vec = n * needed_push
-                            delta_x[v_idx] = disp_vec
-
-                # Laplacian smoothing of displacements to preserve natural folds and avoid crinkling
-                for _ in range(smooth_iterations):
-                    delta_smooth = np.copy(delta_x)
-                    for v_idx, w_spatial in spatial_weights.items():
-                        if v_idx in protected_verts or w_spatial <= 1e-4:
-                            continue
-                        neighbors = adj[v_idx]
-                        if neighbors:
-                            avg_delta = np.mean(delta_x[neighbors], axis=0)
-                            delta_smooth[v_idx] = 0.5 * delta_x[v_idx] + 0.5 * avg_delta
-                    delta_x = delta_smooth
-
-                # Ensure penetrating vertices retain full required clearance along normal
-                if collider is not None:
-                    for v_idx, w_spatial in spatial_weights.items():
-                        if w_spatial <= 1e-4 or v_idx in protected_verts:
-                            continue
-                        p = src_mesh.vertices[v_idx]
-                        dist, nearest_idx = col_kdtree.query(p)
-                        n = col_normals[nearest_idx]
-                        col_pos = collider.vertices[nearest_idx]
-                        signed_dist = float(np.dot(p - col_pos, n))
-                        if signed_dist < collision_margin:
-                            if signed_dist < 0.0:
-                                target_push = (-signed_dist + collision_margin * w_spatial) * w_time + 0.001
-                            else:
-                                target_push = (collision_margin - signed_dist) * (w_spatial * w_time)
-                            proj = float(np.dot(delta_x[v_idx], n))
-                            if proj < target_push:
-                                delta_x[v_idx] += n * (target_push - proj)
-
-                # Apply displacements
-                verts_new += delta_x
+                    # Laplacian smoothing on displacements to preserve natural folds and avoid crinkling
+                    for _ in range(smooth_iterations):
+                        delta_smooth = np.copy(delta_x)
+                        for v_idx in target_v_list:
+                            neighbors = adj[v_idx]
+                            if neighbors:
+                                avg_delta = np.mean(delta_x[neighbors], axis=0)
+                                delta_smooth[v_idx] = 0.7 * delta_x[v_idx] + 0.3 * avg_delta
+                        delta_x = delta_smooth
 
                 # Verification: measure displacement on unaffected vertices
                 for v_idx in range(ref_mesh.num_vertices):

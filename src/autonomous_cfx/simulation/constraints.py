@@ -4,8 +4,35 @@ Implements vectorized distance, bending, attachment/pinning, and contact constra
 
 from __future__ import annotations
 
-from typing import Optional, Tuple
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import numpy as np
+
+
+@dataclass
+class AnimatedAttachment:
+    """Kinematic or compliant attachment binding cloth vertices to an animated collider or trajectory.
+
+    Attributes:
+        cloth_indices: (K,) array of garment vertex indices to attach.
+        collider: Animated collider instance to attach to (e.g. AnimatedMeshCollider).
+        collider_indices: (K,) array of matching collider vertex indices.
+        rest_offsets: (K, 3) offset vector from collider vertex to cloth vertex at rest pose.
+        stiffness: 1.0 for hard kinematic lock (infinite mass), < 1.0 for compliant attachment.
+    """
+    cloth_indices: np.ndarray
+    collider: Optional[Any] = None
+    collider_indices: Optional[np.ndarray] = None
+    rest_offsets: Optional[np.ndarray] = None
+    stiffness: float = 1.0
+
+    def __post_init__(self):
+        self.cloth_indices = np.asarray(self.cloth_indices, dtype=np.int32)
+        if self.collider_indices is not None:
+            self.collider_indices = np.asarray(self.collider_indices, dtype=np.int32)
+        if self.rest_offsets is not None:
+            self.rest_offsets = np.asarray(self.rest_offsets, dtype=np.float32)
+
 
 
 class DistanceConstraintBatch:
