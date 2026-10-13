@@ -1,0 +1,12 @@
+[
+  {
+    "model": "moondream:latest",
+    "backend": "ollama_native_vision",
+    "endpoint": "http://127.0.0.1:11434",
+    "image_path": "O:\\02_Tools\\05_Dev\\Cfx_Studio\\evidence\\annotations\\shot020_frame10_bundle\\clean_render.png",
+    "prompt": "Analyze this 3D viewport frame of the character wearing a shearling coat. Identify the defect where the sleeve collides with the torso or arm, and describe the required physical correction.",
+    "response": "The image shows a 3D rendering of a brown jacket with a sleeve that is too long, causing it to collide with the torso or arm. The jacket is displayed in a 3D viewport, and the defect is highlighted in red. To correct this issue, the sleeve should be trimmed to the appropriate length, ensuring a proper fit and appearance.",
+    "duration_seconds": 3.813,
+    "timestamp": 1791890230.8285098
+  }
+]

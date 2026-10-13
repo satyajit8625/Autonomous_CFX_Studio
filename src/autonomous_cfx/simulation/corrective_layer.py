@@ -27,6 +27,8 @@ class CorrectionTelemetry:
     corrected_frames_count: int
     protected_vertices_preserved: bool
     is_flicker_free: bool
+    fps: float = 24.0
+    max_temporal_accel_m_s2: float = 0.0
 
 
 class CorrectiveLayerEngine:
@@ -39,7 +41,8 @@ class CorrectiveLayerEngine:
         request: StructuredCorrectionRequest,
         colliders_cache: Optional[List[MeshGeometry]] = None,
         collision_margin: float = 0.008,
-        smooth_iterations: int = 3
+        smooth_iterations: int = 3,
+        fps: float = 24.0
     ) -> Tuple[List[MeshGeometry], CorrectionTelemetry]:
         """Apply bounded multimodal correction to simulation frames non-destructively."""
         num_frames = len(sim_cache)
@@ -196,6 +199,9 @@ class CorrectiveLayerEngine:
             accel = np.linalg.norm(d_next - 2.0 * d_curr + d_prev, axis=1)
             max_layer_accel = max(max_layer_accel, float(np.max(accel)))
 
+        # Physical acceleration scaled by FPS^2 (m/s^2)
+        max_physical_accel = max_layer_accel * (float(fps) ** 2)
+
         # Protected vertices preserved check
         protected_preserved = True
         if protected_verts:
@@ -215,7 +221,9 @@ class CorrectiveLayerEngine:
             max_temporal_velocity_jump=round(max_layer_accel, 4),
             corrected_frames_count=corrected_frames_count,
             protected_vertices_preserved=protected_preserved,
-            is_flicker_free=max_layer_accel < 0.2
+            is_flicker_free=bool(max_layer_accel < 0.15),
+            fps=float(fps),
+            max_temporal_accel_m_s2=round(max_physical_accel, 2)
         )
 
         return corrected_frames, telemetry
@@ -253,9 +261,19 @@ class CorrectiveLayerEngine:
         cloth: MeshGeometry,
         collider: MeshGeometry,
         margin: float,
-        target_indices: Optional[List[int]] = None
+        target_indices: Optional[List[int]] = None,
+        max_proximity_threshold: float = 0.05
     ) -> float:
-        """Calculate max true penetration depth inside collider volume in millimeters."""
+        """Calculate max true penetration depth inside collider volume in millimeters.
+
+        Args:
+            cloth: Simulated cloth mesh.
+            collider: Collision geometry mesh.
+            margin: Desired safety margin in meters.
+            target_indices: Optional vertex subset to test.
+            max_proximity_threshold: Distance threshold (meters) for contact search.
+                Excludes distant geometry to prevent spurious signed distance projections.
+        """
         test_verts = cloth.vertices[target_indices] if target_indices is not None else cloth.vertices
         if len(test_verts) == 0:
             return 0.0
@@ -264,10 +282,16 @@ class CorrectiveLayerEngine:
         normals = collider.compute_normals()
 
         dists, indices = kdtree.query(test_verts)
-        col_pts = collider.vertices[indices]
-        col_n = normals[indices]
 
-        to_cloth = test_verts - col_pts
+        # Only evaluate vertices within contact proximity (< 50 mm)
+        contact_mask = dists < max_proximity_threshold
+        if not np.any(contact_mask):
+            return 0.0
+
+        col_pts = collider.vertices[indices[contact_mask]]
+        col_n = normals[indices[contact_mask]]
+
+        to_cloth = test_verts[contact_mask] - col_pts
         signed_dists = np.sum(to_cloth * col_n, axis=1)
 
         penetrating = signed_dists < 0.0

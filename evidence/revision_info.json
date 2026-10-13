@@ -1,24 +1,54 @@
 {
   "project": "Autonomous CFX Studio",
-  "version": "1.0.0",
-  "git_commit": "e29469f0771189c144a323e1262d01eeb4f936bc",
-  "timestamp": "2026-10-13T14:30:00+05:30",
-  "python_version": "3.10.11",
-  "platform": "Windows 11 (AMD64)",
+  "version": "4.0.0",
+  "milestone": "Milestone v4.0 - Real Local-Model AI Agent & Multimodal Cloth Simulation",
+  "git_commit": "a2deb5b58da66f6eddd5d579852349af33ac1893",
+  "timestamp": "2026-10-13T16:50:00+05:30",
+  "hardware": {
+    "gpu": "NVIDIA GeForce RTX 3050 (6144 MiB VRAM, CUDA Compute 8.6)",
+    "driver": "591.86",
+    "cuda": "13.1",
+    "cpu": "AMD Ryzen 5 5600X 6-Core Processor (12 threads)",
+    "ram_gb": 32.0,
+    "platform": "Windows 11 (AMD64)"
+  },
+  "local_models": {
+    "text_tool_llm": {
+      "model": "qwen2.5-coder:7b",
+      "format": "Q4_K_M (4.7 GB)",
+      "runtime": "Ollama 0.3.x on 127.0.0.1:11434",
+      "fallback_disabled": true
+    },
+    "vision_model": {
+      "model": "moondream:latest",
+      "format": "1.7 GB",
+      "runtime": "Ollama 0.3.x Native Vision on 127.0.0.1:11434"
+    }
+  },
   "dependencies": {
-    "usd-core": "26.8",
     "numpy": "2.2.6",
     "scipy": "1.15.3",
     "trimesh": "5.1.1",
     "pyside6": "6.12.0",
     "jsonschema": "4.26.0",
     "pydantic": "2.14.1",
-    "pytest": "9.1.1"
+    "pytest": "9.1.1",
+    "imageio": "2.37.2",
+    "imageio-ffmpeg": "0.6.0 (FFmpeg v7.1)"
   },
-  "demonstrations": {
-    "external_assets_usd_export": "evidence/logs/workflow_external_assets.log",
-    "diagnosed_and_healed_repair": "evidence/logs/workflow_healed_repair.log",
-    "unresolved_case_honest_stop": "evidence/logs/workflow_unresolved_case.log",
-    "playblast_deformation": "evidence/playblasts/jacket_simulation_playblast.txt"
+  "evidence_artifacts": {
+    "acceptance_report": "evidence/reports/real_local_model_acceptance_report.json",
+    "watchdog_timeout_report": "evidence/reports/watchdog_timeout_report.json",
+    "llm_transcripts": "evidence/model_transcripts/real_llm_acceptance_transcripts.json",
+    "vision_transcripts": "evidence/model_transcripts/real_vision_acceptance_transcripts.json",
+    "production_input_alembic": "evidence/exports/shot020_production_input.abc",
+    "approved_output_alembic": "evidence/exports/shot020_shearling_coat_approved.abc",
+    "videos": {
+      "before_cloth_simulation": "evidence/videos/cloth_simulation_before.mp4",
+      "after_cloth_simulation": "evidence/videos/cloth_simulation_after.mp4",
+      "side_by_side_comparison": "evidence/videos/cloth_simulation_comparison.mp4",
+      "desktop_workflow_session": "evidence/videos/desktop_workflow_session.mp4"
+    },
+    "animated_playblast_gif": "evidence/playblasts/desktop_workflow_acceptance.gif"
   }
 }

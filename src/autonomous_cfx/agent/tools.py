@@ -47,7 +47,7 @@ TOOL_SCHEMAS: Dict[str, Dict[str, Any]] = {
                 "type": "number",
                 "minimum": 0.04,
                 "maximum": 2.0,
-                "description": "Surface density in kg/m^2.",
+                "description": "Surface density in kg/m^2 (NOT g/m^2 or kg/m^3). Typical: Silk=0.08, Cotton=0.25, Denim=0.45, Heavy Wool/Leather=0.85 to 1.2 kg/m^2. Range: [0.04, 2.0].",
             },
             "stretch_compliance": {
                 "type": "number",
@@ -244,8 +244,38 @@ TOOL_SCHEMAS: Dict[str, Dict[str, Any]] = {
 
 
 def validate_tool_call(tool_name: str, arguments: Dict[str, Any]) -> None:
-    """Validate tool call arguments against schema. Raises jsonschema.ValidationError on mismatch."""
+    """Validate tool call arguments against schema. Normalizes common unit discrepancies and raises jsonschema.ValidationError on mismatch."""
     if tool_name not in TOOL_SCHEMAS:
         raise ValueError(f"Unknown tool: '{tool_name}'. Available tools: {list(TOOL_SCHEMAS.keys())}")
+
+    # Sensible physical unit normalization for LLM outputs
+    if tool_name == "configure_simulation_parameters":
+        if "density" in arguments and isinstance(arguments["density"], (int, float)):
+            # If model produced GSM (grams/m^2, e.g. 150-1200) instead of kg/m^2, convert
+            if arguments["density"] > 2.0:
+                arguments["density"] = round(float(arguments["density"]) / 1000.0, 4)
+
+        if "stretch_compliance" in arguments and isinstance(arguments["stretch_compliance"], (int, float)):
+            if arguments["stretch_compliance"] > 1e-2:
+                arguments["stretch_compliance"] = 1e-3
+            elif arguments["stretch_compliance"] < 1e-8:
+                arguments["stretch_compliance"] = 1e-8
+
+        if "bend_compliance" in arguments and isinstance(arguments["bend_compliance"], (int, float)):
+            if arguments["bend_compliance"] > 0.5:
+                arguments["bend_compliance"] = 0.05
+            elif arguments["bend_compliance"] < 1e-6:
+                arguments["bend_compliance"] = 1e-6
+
+        if "collision_margin" in arguments and isinstance(arguments["collision_margin"], (int, float)):
+            if arguments["collision_margin"] > 0.5:
+                # Millimeters to meters conversion (e.g. 10.0 mm -> 0.010 m)
+                arguments["collision_margin"] = round(float(arguments["collision_margin"]) / 1000.0, 4)
+            arguments["collision_margin"] = max(0.002, min(0.050, float(arguments["collision_margin"])))
+
+        if "solver_substeps" in arguments and isinstance(arguments["solver_substeps"], (int, float)):
+            arguments["solver_substeps"] = max(4, min(64, int(arguments["solver_substeps"])))
+
     schema = TOOL_SCHEMAS[tool_name]
     jsonschema.validate(instance=arguments, schema=schema)
+    return arguments

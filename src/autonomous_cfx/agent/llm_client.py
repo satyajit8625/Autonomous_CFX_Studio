@@ -5,6 +5,7 @@ with structured intent parsing, JSON-schema validated tool execution, clarificat
 
 from __future__ import annotations
 
+import base64
 import json
 import re
 import time
@@ -12,6 +13,7 @@ import urllib.request
 import urllib.error
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from autonomous_cfx.agent.tools import (
@@ -29,17 +31,17 @@ Your responsibility is to translate natural language cloth behavior descriptions
 diagnose simulation defects, execute bounded repair actions, and report objective quality metrics.
 
 Available Tools:
-1. configure_simulation_parameters: Emit physical material properties (density, compliance, damping, friction, margin, substeps).
-2. request_clarification: Call when artist instructions are contradictory, ambiguous, or physically underspecified.
+1. configure_simulation_parameters: Emit physical material properties (density in kg/m^2 [0.04-2.0], stretch_compliance [1e-8 to 1e-2], bend_compliance [1e-6 to 0.5], damping [0.001-0.20], friction [0.02-0.95], collision_margin [0.002-0.050], solver_substeps [4-64], reasoning).
+2. request_clarification: Call when artist instructions are contradictory (e.g. "completely rigid but flows like water" or "zero stretch and stretchy"), ambiguous, or physically underspecified.
 3. diagnose_simulation_failure: Call when automated quality checks detect penetration, strain, or instability.
-4. apply_repair_action: Formulate bounded parameter adjustments to resolve diagnosed defects.
+4. apply_repair_action: Formulate bounded parameter adjustments to resolve diagnosed defects (substep_multiplier [1.0-3.0], margin_expansion_mm [0-15], compliance_stiffening_factor [0.1-1.0]).
 5. submit_quality_recommendation: Submit objective quality status (PASS_RECOMMENDED, NEEDS_REPAIR, or UNRESOLVED_FAILED).
 
 Rules:
-- Never guess when artist requirements are contradictory (e.g. "completely rigid but flows like water"). Call request_clarification.
-- All physical values must be within realistic, verifiable ranges.
-- Always output valid tool calls formatted as JSON adhering strictly to tool schemas.
-- Do not mark human approval; human review is an independent artist authority.
+- If the artist prompt contains contradictory or impossible physical requirements (such as combining high rigidity/stiffness with fluid silk/water drape, or zero stretch with high stretch), you MUST call request_clarification to ask the artist which behavior to prioritize.
+- When configuring physical parameters, ensure surface density is in kg/m^2 (between 0.04 and 2.0 kg/m^2). For heavy wool, leather, or shearling, use 0.85 to 1.2 kg/m^2.
+- Always output tool calls formatted as valid JSON matching the exact schema.
+- Human review is an independent authority; never claim automated approval as human approval.
 """
 
 
@@ -71,21 +73,99 @@ class AgentMessage:
     timestamp: float = field(default_factory=time.time)
 
 
+@dataclass
+class VisionInferenceRecord:
+    """Record of a local multimodal vision model inference."""
+    model_name: str
+    prompt: str
+    image_shape: Tuple[int, int]
+    raw_response: str
+    duration_seconds: float
+    timestamp: float = field(default_factory=time.time)
+
+
+class LocalVisionClient:
+    """Local Multimodal Vision client using Moondream on Ollama."""
+
+    def __init__(
+        self,
+        model_name: str = "moondream:latest",
+        endpoint_url: str = "http://localhost:11434/api/generate",
+        timeout: float = 60.0,
+    ):
+        self.model_name = model_name
+        self.endpoint_url = endpoint_url
+        self.timeout = timeout
+        self.history: List[VisionInferenceRecord] = []
+
+    def inspect_viewport_image(
+        self,
+        image_bytes: bytes,
+        prompt: str = "Describe what is marked or drawn on the 3D character in this image."
+    ) -> VisionInferenceRecord:
+        """Execute local vision model inference on image."""
+        import base64
+        import io
+        from PIL import Image
+
+        start_t = time.time()
+        img = Image.open(io.BytesIO(image_bytes))
+        shape = (img.width, img.height)
+        img_b64 = base64.b64encode(image_bytes).decode("utf-8")
+
+        payload = {
+            "model": self.model_name,
+            "prompt": prompt,
+            "images": [img_b64],
+            "stream": False,
+        }
+        data_bytes = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            self.endpoint_url,
+            data=data_bytes,
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            resp_data = json.loads(resp.read().decode("utf-8"))
+
+        elapsed = time.time() - start_t
+        raw_resp = resp_data.get("response", "").strip()
+
+        record = VisionInferenceRecord(
+            model_name=self.model_name,
+            prompt=prompt,
+            image_shape=shape,
+            raw_response=raw_resp,
+            duration_seconds=round(elapsed, 3),
+        )
+        self.history.append(record)
+        return record
+
+
 class LocalLLMClient:
     """Local Language Model client with structured tool-calling and fallback embedded engine."""
 
     def __init__(
         self,
-        model_name: str = "llama3.2",
-        backend: str = "embedded_local",  # "ollama", "openai_compatible", or "embedded_local"
+        model_name: str = "qwen2.5-coder:7b",
+        backend: str = "ollama",  # "ollama", "openai_compatible", or "embedded_local"
         endpoint_url: str = "http://localhost:11434/api/chat",
         temperature: float = 0.0,
+        disable_fallback: bool = False,
+        timeout: float = 60.0,
     ):
         self.model_name = model_name
         self.backend = backend
-        self.endpoint_url = endpoint_url
+        if self.backend == "ollama" and not endpoint_url.endswith("/api/chat"):
+            clean_base = endpoint_url.rstrip("/")
+            self.endpoint_url = f"{clean_base}/api/chat"
+        else:
+            self.endpoint_url = endpoint_url
         self.temperature = temperature
+        self.disable_fallback = disable_fallback
+        self.timeout = timeout
         self.conversation_history: List[AgentMessage] = []
+        self.transcripts: List[Dict[str, Any]] = []
         self._init_system_prompt()
 
     def _init_system_prompt(self):
@@ -119,47 +199,75 @@ class LocalLLMClient:
             try:
                 text, tool_calls = self._call_remote_endpoint()
                 if tool_calls:
+                    self.add_assistant_message(text, tool_calls)
                     return text, tool_calls
+                elif self.disable_fallback:
+                    raise RuntimeError(
+                        f"Deterministic fallback is disabled: local model '{self.model_name}' did not produce any valid tool call."
+                    )
             except Exception as e:
+                if self.disable_fallback:
+                    raise RuntimeError(
+                        f"Deterministic fallback is disabled: real local model execution failed on {self.endpoint_url}: {e}"
+                    ) from e
                 logger.warning(f"Remote LLM ({self.backend}) unreachable ({e}). Falling back to embedded local engine.")
 
-        # 2. Embedded local structured engine
+        # 2. Embedded local structured engine (Deterministic Fallback)
         text, tool_calls = self._embedded_engine_process()
         self.add_assistant_message(text, tool_calls)
         return text, tool_calls
 
     def _call_remote_endpoint(self) -> Tuple[str, List[ToolCallRecord]]:
         """Call live local Ollama or OpenAI-compatible endpoint."""
+        start_t = time.time()
+        tools_payload = [
+            {
+                "type": "function",
+                "function": {
+                    "name": k,
+                    "description": f"Tool {k}",
+                    "parameters": v,
+                },
+            }
+            for k, v in TOOL_SCHEMAS.items()
+        ]
+
         payload = {
             "model": self.model_name,
             "messages": [{"role": m.role.value, "content": m.content} for m in self.conversation_history],
             "options": {"temperature": self.temperature},
             "stream": False,
         }
+        if self.backend == "ollama":
+            payload["tools"] = tools_payload
+
         data_bytes = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(
             self.endpoint_url,
             data=data_bytes,
             headers={"Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(req, timeout=5.0) as resp:
+        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
             resp_data = json.loads(resp.read().decode("utf-8"))
 
-        raw_content = resp_data.get("message", {}).get("content", "")
-        # Parse potential JSON tool calls in response
-        tool_calls = self._parse_json_tool_calls(raw_content)
-        return raw_content, tool_calls
+        elapsed = time.time() - start_t
+        msg = resp_data.get("message", {})
+        raw_content = msg.get("content", "")
+        native_calls = msg.get("tool_calls", [])
 
-    def _parse_json_tool_calls(self, text: str) -> List[ToolCallRecord]:
-        """Extract and validate tool calls from LLM output."""
-        tool_calls = []
-        # Match json blocks: ```json ... ``` or raw {...}
-        matches = re.findall(r"\{[\s\S]*?\}", text)
-        for idx, match in enumerate(matches):
-            try:
-                data = json.loads(match)
-                tool_name = data.get("tool") or data.get("name")
-                args = data.get("arguments") or data.get("parameters") or data
+        tool_calls: List[ToolCallRecord] = []
+
+        # 1. Check native tool calls from Ollama
+        if native_calls:
+            for idx, call in enumerate(native_calls):
+                fn = call.get("function", {})
+                tool_name = fn.get("name", "")
+                args = fn.get("arguments", {})
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except Exception:
+                        args = {}
                 if tool_name in TOOL_SCHEMAS:
                     record = ToolCallRecord(tool_name=tool_name, arguments=args, call_id=f"call_{idx+1}")
                     try:
@@ -169,9 +277,141 @@ class LocalLLMClient:
                         record.validation_passed = False
                         record.validation_error = str(err)
                     tool_calls.append(record)
-            except Exception:
-                continue
+
+        # 2. If no native tool calls or empty, parse potential JSON in raw_content
+        if not tool_calls and raw_content:
+            tool_calls = self._parse_json_tool_calls(raw_content)
+
+        # Record transcript
+        last_user_prompt = ""
+        for m in reversed(self.conversation_history):
+            if m.role == MessageRole.USER:
+                last_user_prompt = m.content
+                break
+
+        transcript_entry = {
+            "model": self.model_name,
+            "backend": self.backend,
+            "endpoint": self.endpoint_url,
+            "prompt": last_user_prompt,
+            "raw_response": raw_content,
+            "tool_calls": [
+                {
+                    "tool": tc.tool_name,
+                    "arguments": tc.arguments,
+                    "validation_passed": tc.validation_passed,
+                    "validation_error": tc.validation_error,
+                }
+                for tc in tool_calls
+            ],
+            "duration_seconds": round(elapsed, 3),
+            "timestamp": time.time(),
+        }
+        self.transcripts.append(transcript_entry)
+
+        return raw_content, tool_calls
+
+    def _parse_json_tool_calls(self, text: str) -> List[ToolCallRecord]:
+        """Extract and validate tool calls from LLM output handling nested JSON and code fences."""
+        tool_calls: List[ToolCallRecord] = []
+        raw_candidates: List[Dict[str, Any]] = []
+
+        # 1. Clean markdown code fences if present
+        clean_text = text.strip()
+        if clean_text.startswith("```json"):
+            clean_text = clean_text[7:]
+        elif clean_text.startswith("```"):
+            clean_text = clean_text[3:]
+        if clean_text.endswith("```"):
+            clean_text = clean_text[:-3]
+        clean_text = clean_text.strip()
+
+        # Try parsing the clean text directly
+        try:
+            d = json.loads(clean_text)
+            if isinstance(d, dict):
+                raw_candidates.append(d)
+        except Exception:
+            pass
+
+        # 2. Balanced-brace scanner to reliably extract nested JSON objects
+        if not raw_candidates:
+            idx = 0
+            n = len(text)
+            while idx < n:
+                if text[idx] == '{':
+                    depth = 0
+                    in_str = False
+                    escape = False
+                    start_pos = idx
+                    for j in range(start_pos, n):
+                        ch = text[j]
+                        if escape:
+                            escape = False
+                            continue
+                        if ch == '\\':
+                            escape = True
+                            continue
+                        if ch == '"':
+                            in_str = not in_str
+                            continue
+                        if not in_str:
+                            if ch == '{':
+                                depth += 1
+                            elif ch == '}':
+                                depth -= 1
+                                if depth == 0:
+                                    sub_str = text[start_pos:j + 1]
+                                    try:
+                                        parsed = json.loads(sub_str)
+                                        if isinstance(parsed, dict):
+                                            raw_candidates.append(parsed)
+                                    except Exception:
+                                        pass
+                                    idx = j
+                                    break
+                idx += 1
+
+        # 3. Match against TOOL_SCHEMAS and validate
+        for idx, data in enumerate(raw_candidates):
+            tool_name = data.get("tool") or data.get("name")
+            args = data.get("arguments") or data.get("parameters") or data
+            if tool_name in TOOL_SCHEMAS:
+                record = ToolCallRecord(tool_name=tool_name, arguments=args, call_id=f"call_{idx+1}")
+                try:
+                    validate_tool_call(tool_name, args)
+                    record.validation_passed = True
+                except Exception as err:
+                    record.validation_passed = False
+                    record.validation_error = str(err)
+                tool_calls.append(record)
+
         return tool_calls
+
+    def save_transcripts(self, json_path: str, md_path: Optional[str] = None) -> None:
+        """Persist structured model execution transcripts."""
+        import os
+        os.makedirs(os.path.dirname(os.path.abspath(json_path)), exist_ok=True)
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(self.transcripts, f, indent=2)
+
+        if md_path:
+            os.makedirs(os.path.dirname(os.path.abspath(md_path)), exist_ok=True)
+            with open(md_path, "w", encoding="utf-8") as f:
+                f.write(f"# Local Model Execution Transcript ({self.model_name})\n\n")
+                f.write(f"- **Runtime Backend:** {self.backend}\n")
+                f.write(f"- **Endpoint:** {self.endpoint_url}\n")
+                f.write(f"- **Fallback Disabled:** {self.disable_fallback}\n\n")
+                for idx, entry in enumerate(self.transcripts, 1):
+                    f.write(f"## Request {idx}\n\n")
+                    f.write(f"**Prompt:** {entry['prompt']}\n\n")
+                    f.write(f"**Duration:** {entry['duration_seconds']}s\n\n")
+                    f.write(f"### Raw Model Completion\n```json\n{entry['raw_response']}\n```\n\n")
+                    f.write("### Validated Tool Calls\n\n")
+                    for tc in entry["tool_calls"]:
+                        f.write(f"- **Tool:** `{tc['tool']}` (Validated: {tc['validation_passed']})\n")
+                        f.write(f"```json\n{json.dumps(tc['arguments'], indent=2)}\n```\n\n")
+                    f.write("---\n\n")
 
     def _embedded_engine_process(self) -> Tuple[str, List[ToolCallRecord]]:
         """Deterministic embedded engine performing structured intent parsing and tool invocation."""
@@ -301,3 +541,78 @@ class LocalLLMClient:
 
         reply_text = f"Compiled verified XPBD physical parameters for '{mat_name}' cloth behavior."
         return reply_text, [rec]
+
+
+class LocalVisionClient:
+    """Local Vision Model Client utilizing moondream:latest on Ollama.
+    
+    Performs real local neural vision inference on rendered viewport images or annotations,
+    completely separate from numerical 3D manifold unprojection.
+    """
+
+    def __init__(
+        self,
+        model_name: str = "moondream:latest",
+        endpoint_url: str = "http://127.0.0.1:11434",
+        timeout: float = 60.0,
+    ) -> None:
+        self.model_name = model_name
+        self.endpoint_url = endpoint_url
+        self.timeout = timeout
+        self.transcripts: List[Dict[str, Any]] = []
+
+    def analyze_viewport_image(
+        self,
+        image_path: str | Path,
+        prompt: str = "Describe what is shown in this 3D viewport and identify any garment collision or defect markings.",
+    ) -> Dict[str, Any]:
+        """Perform neural vision analysis of a 3D viewport or defect image."""
+        p = Path(image_path)
+        if not p.exists():
+            raise FileNotFoundError(f"Image not found at: {p}")
+
+        with open(p, "rb") as f:
+            b64_image = base64.b64encode(f.read()).decode("utf-8")
+
+        payload = {
+            "model": self.model_name,
+            "prompt": prompt,
+            "images": [b64_image],
+            "stream": False,
+        }
+
+        req = urllib.request.Request(
+            f"{self.endpoint_url}/api/generate",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+
+        t0 = time.time()
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                response_text = data.get("response", "").strip()
+        except Exception as exc:
+            response_text = f"[Vision Inference Error: {exc}]"
+
+        elapsed = time.time() - t0
+
+        record = {
+            "model": self.model_name,
+            "backend": "ollama_native_vision",
+            "endpoint": self.endpoint_url,
+            "image_path": str(p),
+            "prompt": prompt,
+            "response": response_text,
+            "duration_seconds": round(elapsed, 3),
+            "timestamp": time.time(),
+        }
+        self.transcripts.append(record)
+        return record
+
+    def save_transcripts(self, path: str | Path) -> None:
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(self.transcripts, f, indent=2)
+

@@ -42,6 +42,11 @@ from autonomous_cfx.core.alembic_io import (
     AlembicShotImporter,
     AlembicShotSummary,
 )
+from autonomous_cfx.core.approval import (
+    ApprovalAuthority,
+    ApprovalGatekeeper,
+    ApprovalRecord,
+)
 from autonomous_cfx.core.cache_io import SimulationCache
 from autonomous_cfx.core.geometry import MeshGeometry
 from autonomous_cfx.core.logger import logger
@@ -100,9 +105,11 @@ class AutonomousCFXMainWindow(QMainWindow):
         self.current_job_id: Optional[str] = None
         self.current_result_version: int = 1
 
-        # 4. State-Dependent Gating
+        # 4. State-Dependent Gating & Independent Approval Authority
         self.is_approved: bool = False
         self.approved_version: Optional[int] = None
+        self.approval_record: Optional[ApprovalRecord] = None
+        self.isolated_test_mode: bool = False
         self.roles_confirmed: bool = False
 
         # 5. Thread Bridge
@@ -413,6 +420,7 @@ class AutonomousCFXMainWindow(QMainWindow):
         """Invalidate artist approval when inputs, simulation, or corrections change."""
         self.is_approved = False
         self.approved_version = None
+        self.approval_record = None
         self.lbl_approval_badge.setText("Status: Awaiting Re-Approval (Cache modified)")
         self.lbl_approval_badge.setStyleSheet("color: #fbbf24; font-size: 11px;")
         self._update_workflow_state()
@@ -818,18 +826,42 @@ class AutonomousCFXMainWindow(QMainWindow):
             self.status_bar.showMessage("Correction discarded. Reverted to previous cache.")
 
     # Artist Approval & Export Handlers
-    def _on_artist_approve(self):
+    def _on_artist_approve(self, is_synthetic_test: bool = False):
+        import hashlib
+        cache_hash = "unknown"
+        if self.active_cache and self.active_cache.frames:
+            cache_hash = hashlib.sha256(str(sorted(self.active_cache.frames.keys())).encode("utf-8")).hexdigest()[:12]
+
+        is_test_env = is_synthetic_test or (QApplication.platformName() == "offscreen" and not self.isolated_test_mode)
+        if is_test_env:
+            self.approval_record = ApprovalRecord.create_synthetic_test_approval(
+                approved_version=self.current_result_version,
+                cache_hash=cache_hash,
+                allow_isolated_publishing=self.isolated_test_mode
+            )
+            self.lbl_approval_badge.setText(f"Status: ⚑ Synthetic Test Approval (v{self.current_result_version:03d} - Test Mode)")
+            self.lbl_approval_badge.setStyleSheet("color: #38bdf8; font-weight: bold; font-size: 11px;")
+        else:
+            self.approval_record = ApprovalRecord.create_human_approval(
+                approved_version=self.current_result_version,
+                cache_hash=cache_hash
+            )
+            self.lbl_approval_badge.setText(f"Status: ✔ Approved by Human Artist (v{self.current_result_version:03d})")
+            self.lbl_approval_badge.setStyleSheet("color: #4ade80; font-weight: bold; font-size: 11px;")
+
         self.is_approved = True
         self.approved_version = self.current_result_version
-        self.lbl_approval_badge.setText(f"Status: ✔ Approved by Artist (Version v{self.approved_version:03d})")
-        self.lbl_approval_badge.setStyleSheet("color: #4ade80; font-weight: bold; font-size: 11px;")
-        self.diagnostics_drawer.append_log(f"[Review] Artist approved version v{self.approved_version:03d} for export.")
-        self.status_bar.showMessage("Result approved. Alembic export unlocked.")
+        self.diagnostics_drawer.append_log(
+            f"[Review] Registered approval event: Authority={self.approval_record.authority.value}, "
+            f"Actor={self.approval_record.actor_id}, ProductionAuthorized={self.approval_record.is_production_authorized}"
+        )
+        self.status_bar.showMessage("Result approved. Export eligibility updated.")
         self._update_workflow_state()
 
     def _on_artist_reject(self):
         self.is_approved = False
         self.approved_version = None
+        self.approval_record = None
         self.lbl_approval_badge.setText("Status: ✖ Rejected by Artist")
         self.lbl_approval_badge.setStyleSheet("color: #f87171; font-weight: bold; font-size: 11px;")
         self.diagnostics_drawer.append_log("[Review] Artist rejected simulation result.")
@@ -845,6 +877,20 @@ class AutonomousCFXMainWindow(QMainWindow):
         if not self.is_approved or self.approved_version != self.current_result_version:
             self._show_message_box(
                 "Export Blocked", "Export requires explicit artist approval bound to the current result version.", QMessageBox.Warning
+            )
+            return
+
+        # Independent Approval Authority Validation Gate
+        try:
+            ApprovalGatekeeper.validate_production_export_authorization(
+                self.approval_record, is_isolated_test_run=self.isolated_test_mode
+            )
+        except PermissionError as err:
+            self._show_message_box(
+                "Export Denied",
+                f"Production export rejected: {err}\n"
+                "Offscreen synthetic test approvals cannot authorize production publishing outside isolated test mode.",
+                QMessageBox.Critical
             )
             return
 

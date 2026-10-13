@@ -1,0 +1,89 @@
+{
+  "suite_version": "4.0.0",
+  "timestamp": 1791890212.5756729,
+  "hardware": {
+    "gpu": "NVIDIA GeForce RTX 3050 (6144 MiB)",
+    "cuda_compute": "8.6",
+    "driver": "591.86",
+    "cpu": "AMD Ryzen 5 5600X 6-Core Processor",
+    "ram_gb": 32.0
+  },
+  "models": {
+    "text_llm": "qwen2.5-coder:7b",
+    "vision_model": "moondream:latest",
+    "fallback_disabled": true
+  },
+  "scenarios": {
+    "scenario_1_unfamiliar_prompt": {
+      "prompt": "Tailor a heavy double-breasted shearling winter coat, thick weathered hide with stiff collar and heavy drape in gusty mountain air",
+      "tool_call": {
+        "material_name": "shearling",
+        "density": 1.0,
+        "stretch_compliance": 0.0001,
+        "bend_compliance": 1e-05,
+        "damping": 0.01,
+        "friction": 0.8,
+        "collision_margin": 0.005,
+        "solver_substeps": 16,
+        "reasoning": "Shearling is heavy and stiff, requiring high density and compliance to mimic its thick, weathered texture and stiff collar. Increased damping and friction enhance realism in gusty conditions."
+      },
+      "validation_passed": true,
+      "vision_inference": {
+        "model": "moondream:latest",
+        "prompt": "Analyze this 3D viewport frame of the character wearing a shearling coat. Identify the defect where the sleeve collides with the torso or arm, and describe the required physical correction.",
+        "response": "The image shows a 3D rendering of a brown jacket with a sleeve that is too long, causing it to collide with the torso or arm. The jacket is displayed in a 3D viewport, and the defect is highlighted in red. To correct this issue, the sleeve should be trimmed to the appropriate length, ensuring a proper fit and appearance.",
+        "duration_seconds": 3.813
+      },
+      "corrective_telemetry": {
+        "penetration_before_mm": 17.99999736249447,
+        "penetration_after_mm": 0.0,
+        "displacement_outside_region_mm": 0.0,
+        "protected_vertices_preserved": true,
+        "max_temporal_accel_m_s2": 15.55,
+        "fps": 24.0
+      },
+      "export_verification": {
+        "approved_path": "evidence/exports/shot020_shearling_coat_approved.abc",
+        "file_size_bytes": 114178,
+        "samples": 24,
+        "topology_constant": true
+      }
+    },
+    "scenario_2_contradictory_prompt": {
+      "prompt": "Rigid cast-iron breastplate armor fluttering and swirling like gossamer silk chiffon in the breeze",
+      "clarification_tool_call": {
+        "ambiguity_type": "contradictory_requirements",
+        "clarification_question": "Should the breastplate armor be rigid and cast-iron, or should it flutter and swirl like gossamer silk chiffon?",
+        "context": "The artist has specified both rigidity and fluid-like behavior for the breastplate, which are contradictory requirements.",
+        "suggested_options": [
+          "Rigid cast-iron breastplate",
+          "Fluttering gossamer silk chiffon"
+        ]
+      },
+      "validation_passed": true
+    },
+    "scenario_3_unresolved_conflict": {
+      "conflict_diagnosis": {
+        "failure_mode": "deep_penetration",
+        "raw_penetration_depth_mm": 4.2,
+        "recommended_repair_strategy": "Increase collision margin and substeps",
+        "root_cause": "Collider geometry is too tight, causing deep penetration.",
+        "violating_frames": [
+          10,
+          20
+        ]
+      },
+      "final_recommendation": {
+        "recommended_status": "UNRESOLVED_FAILED",
+        "score": 30,
+        "summary": "Simulation failed due to unresolvable deep penetration despite bounded repair attempts. Quality score reflects critical issues.",
+        "tolerance_checks": {
+          "penetration_passed": false,
+          "strain_passed": true,
+          "stability_passed": true
+        }
+      },
+      "validation_passed": true
+    }
+  }
+}

@@ -51,7 +51,7 @@
       "is_protected": false
     }
   ],
-  "created_at": 1791884040.5571632,
+  "created_at": 1791889316.5000958,
   "clean_image_path": "O:\\02_Tools\\05_Dev\\Cfx_Studio\\evidence\\annotations\\shot010_frame10_bundle\\clean_render.png",
   "annotation_overlay_path": "O:\\02_Tools\\05_Dev\\Cfx_Studio\\evidence\\annotations\\shot010_frame10_bundle\\annotation_overlay.png",
   "depth_buffer_path": "O:\\02_Tools\\05_Dev\\Cfx_Studio\\evidence\\annotations\\shot010_frame10_bundle\\depth_buffer.npy",
