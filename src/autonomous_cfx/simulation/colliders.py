@@ -1,10 +1,12 @@
 """Autonomous CFX Studio - Collider Architecture.
 Supports animated meshes, continuous motion interpolation, and analytical obstacle shapes.
+Separates collision margin from true penetration tolerances and reports raw physical measurements.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 import numpy as np
 import trimesh
@@ -13,11 +15,22 @@ from autonomous_cfx.core.geometry import MeshGeometry, BoundingBox
 from autonomous_cfx.core.logger import logger
 
 
+@dataclass
+class CollisionMeasurement:
+    """Raw physical measurements separating margin buffer contact from true interior penetration."""
+    contact_count: int = 0
+    margin_intrusion_depth: float = 0.0     # meters inside margin buffer [0, margin]
+    true_penetration_count: int = 0         # vertices strictly inside collider body (signed_dist < 0)
+    raw_max_penetration_depth: float = 0.0  # meters inside body (< 0 signed distance magnitude)
+    penetrating_vertex_ids: List[int] = field(default_factory=list)
+
+
 class Collider(ABC):
     """Abstract base class for simulation colliders."""
 
     def __init__(self, name: str = "collider"):
         self.name = name
+        self.last_measurement = CollisionMeasurement()
 
     @abstractmethod
     def update_frame(self, frame: float) -> None:
@@ -32,8 +45,8 @@ class Collider(ABC):
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Test and project points against the collider.
         Returns:
-            penetrated_mask: (N,) bool mask of points colliding/penetrating
-            projected_points: (N, 3) corrected surface positions
+            contact_mask: (N,) bool mask of points colliding/within margin
+            projected_points: (N, 3) corrected surface positions (surface + margin)
             contact_normals: (N, 3) surface normals at contact
             collider_velocities: (N, 3) velocity of contact points
         """
@@ -55,19 +68,38 @@ class GroundPlaneCollider(Collider):
         points: np.ndarray,
         margin: float = 0.01,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        penetrated_mask = points[:, 1] < (self.height + margin)
+        signed_dist = points[:, 1] - self.height
+        contact_mask = signed_dist < margin
+        true_pen_mask = signed_dist < 0.0
+
         projected = np.copy(points)
-        projected[penetrated_mask, 1] = self.height + margin
+        projected[contact_mask, 1] = self.height + margin
 
         normals = np.zeros_like(points)
         normals[:, 1] = 1.0
 
         velocities = np.zeros_like(points)
-        return penetrated_mask, projected, normals, velocities
+
+        # Record raw physical measurements
+        true_pen_count = int(np.sum(true_pen_mask))
+        raw_depths = np.maximum(0.0, -signed_dist[true_pen_mask]) if true_pen_count > 0 else np.zeros(0)
+        max_raw_depth = float(np.max(raw_depths)) if len(raw_depths) > 0 else 0.0
+
+        pen_ids = list(np.where(true_pen_mask)[0])
+
+        self.last_measurement = CollisionMeasurement(
+            contact_count=int(np.sum(contact_mask)),
+            margin_intrusion_depth=float(np.max(np.maximum(0.0, margin - signed_dist))) if np.any(contact_mask) else 0.0,
+            true_penetration_count=true_pen_count,
+            raw_max_penetration_depth=max_raw_depth,
+            penetrating_vertex_ids=pen_ids,
+        )
+
+        return contact_mask, projected, normals, velocities
 
 
 class AnimatedMeshCollider(Collider):
-    """Animated triangular mesh collider with temporal interpolation."""
+    """Animated triangular mesh collider with temporal interpolation and raw penetration reporting."""
 
     def __init__(
         self,
@@ -87,6 +119,9 @@ class AnimatedMeshCollider(Collider):
         self.prev_vertices: np.ndarray = np.copy(self.current_vertices)
         self._trimesh_cache: Optional[trimesh.Trimesh] = None
         self._aabb: Optional[BoundingBox] = None
+
+        if len(self.current_vertices) > 0:
+            self._update_mesh_cache()
 
     def set_animation_data(self, frames_dict: Dict[int, np.ndarray]) -> None:
         """Provide per-frame vertex coordinates."""
@@ -144,20 +179,22 @@ class AnimatedMeshCollider(Collider):
         points: np.ndarray,
         margin: float = 0.01,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        """Fast proximity projection using AABB pruning and triangle mesh distance."""
+        """Fast proximity projection separating margin buffer contact from raw true interior penetrations."""
         N = len(points)
-        penetrated_mask = np.zeros(N, dtype=bool)
+        contact_mask = np.zeros(N, dtype=bool)
         projected = np.copy(points)
         contact_normals = np.zeros_like(points)
         collider_velocities = np.zeros_like(points)
 
+        self.last_measurement = CollisionMeasurement()
+
         if self._trimesh_cache is None or self._aabb is None or N == 0:
-            return penetrated_mask, projected, contact_normals, collider_velocities
+            return contact_mask, projected, contact_normals, collider_velocities
 
         # Step 1: Broadphase AABB query
         candidate_mask = self._aabb.contains(points, margin=margin * 3.0)
         if not np.any(candidate_mask):
-            return penetrated_mask, projected, contact_normals, collider_velocities
+            return contact_mask, projected, contact_normals, collider_velocities
 
         candidate_indices = np.where(candidate_mask)[0]
         candidate_pts = points[candidate_indices]
@@ -167,37 +204,49 @@ class AnimatedMeshCollider(Collider):
             closest_pts, distances, triangle_ids = trimesh.proximity.closest_point(
                 self._trimesh_cache, candidate_pts
             )
-            
+
             # Triangle normals
             tri_normals = self._trimesh_cache.face_normals[triangle_ids]
 
             # Vector from closest surface point to cloth point
             diff = candidate_pts - closest_pts
-            # Signed distance based on face normal dot product
+            # Signed distance based on face normal dot product (< 0 means inside collider mesh)
             signed_dist = np.sum(diff * tri_normals, axis=1)
 
-            # A point is colliding if signed distance < margin
-            is_penetrating = signed_dist < margin
+            # Contact is anything within margin
+            is_contact = signed_dist < margin
+            # True penetration is strictly inside collider surface (signed_dist < 0.0)
+            is_true_pen = signed_dist < 0.0
 
-            if np.any(is_penetrating):
-                pen_candidate_idx = candidate_indices[is_penetrating]
-                penetrated_mask[pen_candidate_idx] = True
+            if np.any(is_contact):
+                contact_cand_idx = candidate_indices[is_contact]
+                contact_mask[contact_cand_idx] = True
 
-                # Target position: closest surface point + normal * margin
-                target_normals = tri_normals[is_penetrating]
-                corrected_pts = closest_pts[is_penetrating] + target_normals * margin
-                projected[pen_candidate_idx] = corrected_pts
-                contact_normals[pen_candidate_idx] = target_normals
+                target_normals = tri_normals[is_contact]
+                corrected_pts = closest_pts[is_contact] + target_normals * margin
+                projected[contact_cand_idx] = corrected_pts
+                contact_normals[contact_cand_idx] = target_normals
 
-                # Compute collider motion velocity for contact points
-                # v = (v_current - v_prev) * fps
+                # Collider motion velocity
                 if len(self.prev_vertices) == len(self.current_vertices):
-                    # Estimate surface velocity from closest triangle barycentric or average
-                    triangles = self.geometry.faces[triangle_ids[is_penetrating]]
+                    triangles = self.geometry.faces[triangle_ids[is_contact]]
                     tri_v_curr = np.mean(self.current_vertices[triangles], axis=1)
                     tri_v_prev = np.mean(self.prev_vertices[triangles], axis=1)
-                    collider_velocities[pen_candidate_idx] = (tri_v_curr - tri_v_prev) * self.fps
+                    collider_velocities[contact_cand_idx] = (tri_v_curr - tri_v_prev) * self.fps
+
+            # Record raw measurements
+            true_pen_indices = candidate_indices[is_true_pen]
+            raw_depths = -signed_dist[is_true_pen] if np.any(is_true_pen) else np.zeros(0)
+            max_raw = float(np.max(raw_depths)) if len(raw_depths) > 0 else 0.0
+
+            self.last_measurement = CollisionMeasurement(
+                contact_count=int(np.sum(is_contact)),
+                margin_intrusion_depth=float(np.max(np.maximum(0.0, margin - signed_dist))) if np.any(is_contact) else 0.0,
+                true_penetration_count=int(len(true_pen_indices)),
+                raw_max_penetration_depth=max_raw,
+                penetrating_vertex_ids=list(true_pen_indices),
+            )
         except Exception as e:
             logger.debug(f"Proximity test fallback: {e}")
 
-        return penetrated_mask, projected, contact_normals, collider_velocities
+        return contact_mask, projected, contact_normals, collider_velocities

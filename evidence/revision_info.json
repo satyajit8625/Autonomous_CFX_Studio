@@ -1,0 +1,24 @@
+{
+  "project": "Autonomous CFX Studio",
+  "version": "1.0.0",
+  "git_commit": "e29469f0771189c144a323e1262d01eeb4f936bc",
+  "timestamp": "2026-10-13T14:30:00+05:30",
+  "python_version": "3.10.11",
+  "platform": "Windows 11 (AMD64)",
+  "dependencies": {
+    "usd-core": "26.8",
+    "numpy": "2.2.6",
+    "scipy": "1.15.3",
+    "trimesh": "5.1.1",
+    "pyside6": "6.12.0",
+    "jsonschema": "4.26.0",
+    "pydantic": "2.14.1",
+    "pytest": "9.1.1"
+  },
+  "demonstrations": {
+    "external_assets_usd_export": "evidence/logs/workflow_external_assets.log",
+    "diagnosed_and_healed_repair": "evidence/logs/workflow_healed_repair.log",
+    "unresolved_case_honest_stop": "evidence/logs/workflow_unresolved_case.log",
+    "playblast_deformation": "evidence/playblasts/jacket_simulation_playblast.txt"
+  }
+}

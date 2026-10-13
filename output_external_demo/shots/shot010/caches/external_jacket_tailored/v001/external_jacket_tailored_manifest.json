@@ -1,0 +1,32 @@
+{
+  "format": "Autonomous_CFX_Interchange_Manifest_v1",
+  "name": "external_jacket_tailored",
+  "fps": 24.0,
+  "frame_range": [
+    1,
+    24
+  ],
+  "total_frames": 24,
+  "num_vertices": 520,
+  "num_faces": 926,
+  "alembic_target": "external_jacket_tailored_v001.abc",
+  "point_cache_file": "external_jacket_tailored.vpcache",
+  "metadata": {
+    "name": "external_jacket_tailored",
+    "fps": 24.0,
+    "version": "1.0.0",
+    "generator": "Autonomous CFX Studio",
+    "properties": {
+      "name": "leather",
+      "density": 0.75,
+      "stretch_compliance": 2e-07,
+      "bend_compliance": 0.00015,
+      "damping": 0.072,
+      "friction": 0.8,
+      "collision_thickness": 0.012,
+      "air_drag": 0.01,
+      "solver_substeps": 18,
+      "solver_iterations": 5
+    }
+  }
+}

@@ -100,7 +100,7 @@ class SimulationEngine:
                 break
 
             # Solver step
-            contacts, max_depth = solver.step(dt=dt, frame_num=float(frame_num))
+            contacts, max_depth, telemetry = solver.step(dt=dt, frame_num=float(frame_num))
 
             # Compute diagnostic metrics for frame
             vel_mags = np.linalg.norm(solver.velocities, axis=1)
@@ -109,7 +109,11 @@ class SimulationEngine:
 
             metrics = {
                 "contact_events": contacts,
-                "max_depth": max_depth,
+                "max_margin_depth": max_depth,
+                "raw_true_penetrations": telemetry.raw_true_penetrations,
+                "raw_max_penetration_depth": telemetry.raw_max_penetration_depth,
+                "raw_penetrated_vertex_ids": telemetry.raw_penetrated_vertex_ids,
+                "self_collision_events": telemetry.self_collision_events,
                 "max_velocity": max_vel,
                 "mean_velocity": mean_vel,
             }

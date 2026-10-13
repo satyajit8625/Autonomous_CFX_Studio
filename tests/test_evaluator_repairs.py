@@ -32,11 +32,11 @@ def test_evaluator_catches_excessive_penetration():
 
     cache = SimulationCache(base_faces=faces)
     # Penetration depth 0.025m (above 0.012 limit)
-    cache.add_frame(1, verts, metrics={"contact_events": 10, "max_depth": 0.025})
+    cache.add_frame(1, verts, metrics={"contact_events": 10, "max_depth": 0.025, "raw_max_penetration_depth": 0.025, "raw_true_penetrations": 10})
 
     report = SimulationEvaluator.evaluate(cache, geo)
     assert report.status == QualityStatus.NEEDS_REPAIR
-    assert report.max_penetration_depth == 0.025
+    assert report.raw_max_penetration_depth_mm == 25.0
     assert len(report.issues) > 0
 
 
@@ -51,7 +51,7 @@ def test_bounded_repair_strategist():
 
     # Initial report with excessive penetration (30mm)
     cache = SimulationCache(base_faces=faces)
-    cache.add_frame(1, verts, metrics={"contact_events": 5, "max_depth": 0.030})
+    cache.add_frame(1, verts, metrics={"contact_events": 5, "max_depth": 0.030, "raw_max_penetration_depth": 0.030, "raw_true_penetrations": 5})
     initial_report = SimulationEvaluator.evaluate(cache, geo)
     assert initial_report.status == QualityStatus.NEEDS_REPAIR
 

@@ -195,3 +195,12 @@ class SimulationCache:
 
         logger.info(f"Exported interchange manifest: {manifest_path}")
         return str(manifest_path)
+
+    def export_usd_cache(
+        self,
+        output_file_path: str | Path,
+        prim_path: str = "/World/ClothMesh",
+    ) -> str:
+        """Export native lighting-consumable OpenUSD (.usda / .usd) geometry cache."""
+        from autonomous_cfx.core.usd_export import USDExporter
+        return USDExporter.export_cache(self, output_file_path, prim_path=prim_path)
