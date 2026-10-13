@@ -72,6 +72,7 @@ def render_mesh_frame(
     is_after: bool = False,
     frame_num: int = 1,
     telemetry_info: Optional[Dict[str, str]] = None,
+    draw_overlays: bool = True,
 ) -> np.ndarray:
     """Render high quality shaded 3D mesh frame with body collider and telemetry overlay."""
     im = Image.new("RGB", (width, height), color=(20, 23, 29))
@@ -128,7 +129,7 @@ def render_mesh_frame(
     g_depths = np.mean(g_zc[g_faces], axis=1)
     g_order = np.argsort(g_depths)[::-1]
 
-    defect_set = set(defect_v_indices or [])
+    defect_set = set(defect_v_indices or []) if draw_overlays else set()
 
     for f_idx in g_order:
         f = g_faces[f_idx]
@@ -168,8 +169,8 @@ def render_mesh_frame(
         poly = [(g_sc[f[0], 0], g_sc[f[0], 1]), (g_sc[f[1], 0], g_sc[f[1], 1]), (g_sc[f[2], 0], g_sc[f[2], 1])]
         draw.polygon(poly, fill=col, outline=edge_col)
 
-    # Defect marker circle on screen if present
-    if defect_v_indices and len(defect_v_indices) > 0:
+    # Defect marker circle on screen if present and requested
+    if draw_overlays and defect_v_indices and len(defect_v_indices) > 0:
         c_v = defect_v_indices[0]
         c_px, c_py = g_sc[c_v, 0], g_sc[c_v, 1]
         ring_col = (255, 50, 50) if not is_after else (40, 240, 160)
@@ -178,22 +179,23 @@ def render_mesh_frame(
         draw.text((c_px + 20, c_py - 8), label, fill=ring_col)
 
     # Top banner & HUD
-    draw.rectangle([0, 0, width, 44], fill=(14, 16, 21, 230))
-    draw.line([(0, 44), (width, 44)], fill=(45, 50, 62), width=1)
-    draw.text((16, 12), "AUTONOMOUS CFX STUDIO - NEURAL CLOTH SIMULATION PLAYBLAST", fill=(240, 243, 248))
-    mode_text = "AFTER: CORRECTED & SMOOTHED" if is_after else "BEFORE: UNCORRECTED SIMULATION"
-    mode_color = (60, 230, 150) if is_after else (255, 90, 80)
-    draw.text((width - 320, 12), mode_text, fill=mode_color)
+    if draw_overlays:
+        draw.rectangle([0, 0, width, 44], fill=(14, 16, 21, 230))
+        draw.line([(0, 44), (width, 44)], fill=(45, 50, 62), width=1)
+        draw.text((16, 12), "AUTONOMOUS CFX STUDIO - NEURAL CLOTH SIMULATION PLAYBLAST", fill=(240, 243, 248))
+        mode_text = "AFTER: CORRECTED & SMOOTHED" if is_after else "BEFORE: UNCORRECTED SIMULATION"
+        mode_color = (60, 230, 150) if is_after else (255, 90, 80)
+        draw.text((width - 320, 12), mode_text, fill=mode_color)
 
-    # Bottom HUD
-    draw.rectangle([0, height - 52, width, height], fill=(14, 16, 21, 230))
-    draw.line([(0, height - 52), (width, height - 52)], fill=(45, 50, 62), width=1)
-    timecode = f"Frame: {frame_num:02d} / 24   |   FPS: 24.0   |   Time: {frame_num/24.0:.3f}s"
-    draw.text((16, height - 36), timecode, fill=(160, 170, 190))
+        # Bottom HUD
+        draw.rectangle([0, height - 52, width, height], fill=(14, 16, 21, 230))
+        draw.line([(0, height - 52), (width, height - 52)], fill=(45, 50, 62), width=1)
+        timecode = f"Frame: {frame_num:02d} / 24   |   FPS: 24.0   |   Time: {frame_num/24.0:.3f}s"
+        draw.text((16, height - 36), timecode, fill=(160, 170, 190))
 
-    if telemetry_info:
-        info_str = "  |  ".join(f"{k}: {v}" for k, v in telemetry_info.items())
-        draw.text((320, height - 36), info_str, fill=(200, 215, 235))
+        if telemetry_info:
+            info_str = "  |  ".join(f"{k}: {v}" for k, v in telemetry_info.items())
+            draw.text((320, height - 36), info_str, fill=(200, 215, 235))
 
     return np.array(im)
 

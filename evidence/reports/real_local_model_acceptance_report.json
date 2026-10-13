@@ -1,6 +1,6 @@
 {
   "suite_version": "4.0.0",
-  "timestamp": 1791890212.5756729,
+  "timestamp": 1791894475.121982,
   "hardware": {
     "gpu": "NVIDIA GeForce RTX 3050 (6144 MiB)",
     "cuda_compute": "8.6",
@@ -28,62 +28,196 @@
         "reasoning": "Shearling is heavy and stiff, requiring high density and compliance to mimic its thick, weathered texture and stiff collar. Increased damping and friction enhance realism in gusty conditions."
       },
       "validation_passed": true,
-      "vision_inference": {
-        "model": "moondream:latest",
-        "prompt": "Analyze this 3D viewport frame of the character wearing a shearling coat. Identify the defect where the sleeve collides with the torso or arm, and describe the required physical correction.",
-        "response": "The image shows a 3D rendering of a brown jacket with a sleeve that is too long, causing it to collide with the torso or arm. The jacket is displayed in a 3D viewport, and the defect is highlighted in red. To correct this issue, the sleeve should be trimmed to the appropriate length, ensuring a proper fit and appearance.",
-        "duration_seconds": 3.813
+      "prompt_coverage": {
+        "prompt_text": "Tailor a heavy double-breasted shearling winter coat, thick weathered hide with stiff collar and heavy drape in gusty mountain air",
+        "total_clauses": 5,
+        "covered_clauses": 5,
+        "coverage_percentage": 100.0,
+        "has_unsupported_clauses": false,
+        "unsupported_clauses": [],
+        "clauses": [
+          {
+            "clause": "Tailor a heavy double-breasted shearling winter coat",
+            "is_covered": true,
+            "target": "material_name",
+            "value": "shearling",
+            "status": "MAPPED",
+            "explanation": "Surface density set to 1.0 kg/m\u00b2 for thick hide backing."
+          },
+          {
+            "clause": "thick weathered hide",
+            "is_covered": true,
+            "target": "friction",
+            "value": "0.8",
+            "status": "MAPPED",
+            "explanation": "Elevated kinetic friction (0.80) for worn, rough hide contact."
+          },
+          {
+            "clause": "stiff collar",
+            "is_covered": true,
+            "target": "bend_compliance",
+            "value": "1e-05",
+            "status": "MAPPED",
+            "explanation": "Very low bend compliance for upturned stiff collar."
+          },
+          {
+            "clause": "heavy drape",
+            "is_covered": true,
+            "target": "density",
+            "value": "1.0",
+            "status": "MAPPED",
+            "explanation": "Elevated surface density for heavy textile inertia."
+          },
+          {
+            "clause": "gusty mountain air",
+            "is_covered": true,
+            "target": "wind_velocity",
+            "value": "[2.5, 0.0, 1.2]",
+            "status": "MAPPED",
+            "explanation": "Active aerodynamic wind vector with altitude gust amplitude."
+          }
+        ]
       },
-      "corrective_telemetry": {
-        "penetration_before_mm": 17.99999736249447,
-        "penetration_after_mm": 0.0,
-        "displacement_outside_region_mm": 0.0,
-        "protected_vertices_preserved": true,
-        "max_temporal_accel_m_s2": 15.55,
-        "fps": 24.0
+      "vision_evaluations": {
+        "unmarked_image": {
+          "file": "clean_render_unmarked.png",
+          "prompt": "Analyze this 3D viewport frame of the character wearing a shearling coat. Inspect the fit, drape, and arm contact areas for any geometric penetrations or physical defects.",
+          "response": "The image shows a 3D rendering of a brown jacket with a shearing pattern. The jacket is designed with a unique geometric pattern, featuring a triangular shearing pattern on the sleeves and collar. The jacket appears to be made of a material that is not visible in the image. The fit of the jacket seems to be well-designed, with the sleeves and collar hugging the body in a way that accentuates the shape and contours of the wearer. The arm contact area of the jacket is clearly visible, indicating that the jacket is designed to be worn with the arms extended. The overall design of the jacket is visually appealing and showcases the intricate geometric patterns and the craftsmanship involved in creating such a unique piece of clothing.",
+          "duration_seconds": 5.26,
+          "policy_guard": "Hypothesis conforms to non-destructive bounded correction policy."
+        },
+        "annotated_image": {
+          "file": "annotated_render.png",
+          "prompt": "Analyze this annotated 3D viewport frame. The artist marked a region with a red circle. Describe what physical defect is indicated and what simulation or corrective action is required.",
+          "response": "The image shows a 3D rendering of a brown jacket with a red circle indicating a physical defect. The defect is located in the shoulder area of the jacket, which is a common issue in clothing design. To correct this issue, the artist suggests that the jacket should be re-rendered with the defect repaired, possibly by adjusting the shoulder straps or the fabric itself.\n\nThe image also contains a text box that reads \"Before incorrect simulation to incorrect, simulation to incorrect\". This suggests that the issue with the jacket was identified during the rendering process, and the artist is now suggesting that the simulation should be adjusted to correct the defect.",
+          "duration_seconds": 1.562,
+          "policy_guard": "Hypothesis conforms to non-destructive bounded correction policy."
+        }
+      },
+      "autonomous_diagnosis": {
+        "raw_measurements_supplied": "Raw Solver Collision Telemetry Table:\n| Frame | Vertex ID | Target Garment Scope | Contact Collider | Volumetric Penetration Depth (mm) | Margin Clearance (mm) | Contact Normal [Nx, Ny, Nz] | Max Temporal Velocity (m/s) |\n| 10    | 180       | hero_shearling_coat  | hero_body_arm     | 15.39                            | -15.39                 | [0.824, 0.151, -0.546]       | 0.420                        |\n| 10    | 181       | hero_shearling_coat  | hero_body_arm     | 12.00                             | -12.00                 | [0.819, 0.158, -0.551]       | 0.380                        |\n| 10    | 179       | hero_shearling_coat  | hero_body_arm     | 9.50                              | -9.50                  | [0.831, 0.142, -0.539]       | 0.410                        |\n",
+        "model_proposed_cause": "{\n  \"name\": \"diagnose_simulation_failure\",\n  \"arguments\": {\n    \"failure_mode\": \"deep_penetration\",\n    \"raw_penetration_depth_mm\": 15.39,\n    \"recommended_repair_strategy\": \"Increase collision margin and solver substeps\",\n    \"root_cause\": \"The shearling coat is penetrating the hero's body arm deeply, likely due to insufficient collision margin and solver substeps.\",\n    \"violating_frames\": [10]\n  }\n}\n\n{\n  \"name\": \"apply_repair_action\",\n  \"arguments\": {\n    \"repair_attempt_index\": 1,\n    \"rationale\": \"Increasing collision margin and solver substeps will help prevent deep penetration and improve overall stability.\",\n    \"margin_expansion_mm\": 2,\n    \"substep_multiplier\": 1.5,\n    \"compliance_stiffening_factor\": 1.0\n  }\n}\n\n{\n  \"name\": \"submit_quality_recommendation\",\n  \"arguments\": {\n    \"recommended_status\": \"NEEDS_REPAIR\",\n    \"score\": 75,\n    \"summary\": \"The simulation shows deep penetration, which indicates a need for increased collision margin and solver substeps to improve stability and prevent penetration.\",\n    \"tolerance_checks\": {\n      \"penetration_passed\": false,\n      \"strain_passed\": true,\n      \"stability_passed\": false\n    }\n  }\n}",
+        "executed_action": "Execute non-destructive bounded de-penetration layer on vertices [180, 181, 179] with geodesic falloff (r=0.06m) and protected cuff preservation.",
+        "measured_outcome": {
+          "penetration_before_mm": 15.393,
+          "penetration_after_mm": 0.0,
+          "displacement_outside_region_mm": 0.0,
+          "protected_vertices_preserved": true,
+          "temporal_kinematics": {
+            "fps": 24.0,
+            "velocity_comparison_m_s": {
+              "before": {
+                "mean": 0.953,
+                "max": 16.394,
+                "p95": 9.706
+              },
+              "after": {
+                "mean": 0.9813,
+                "max": 16.9297,
+                "p95": 9.947
+              }
+            },
+            "acceleration_comparison_m_s2": {
+              "before": {
+                "mean": 47.3551,
+                "max": 393.5055,
+                "p95": 391.9025
+              },
+              "after": {
+                "mean": 48.7703,
+                "max": 406.4357,
+                "p95": 403.6685
+              }
+            },
+            "max_layer_displacement_mm": 27.0,
+            "boundary_continuity": {
+              "fade_in_pos_jump_mm": 0.0,
+              "fade_in_vel_jump_m_s": 0.0,
+              "fade_out_pos_jump_mm": 0.0,
+              "fade_out_vel_jump_m_s": 0.0,
+              "is_c1_continuous": true
+            },
+            "is_smooth": false
+          }
+        }
       },
       "export_verification": {
         "approved_path": "evidence/exports/shot020_shearling_coat_approved.abc",
+        "approved_action_path": "evidence/exports/shot030_action_long_approved.abc",
         "file_size_bytes": 114178,
         "samples": 24,
-        "topology_constant": true
+        "topology_constant": true,
+        "cache_hash_sha256": "9b1ca88f9af649340bee7c42236a1226a9e6a16f891edd8e054b65efccbbccc7",
+        "human_approval": {
+          "authority": "human_artist",
+          "actor_id": "lead_cfx_artist_jane",
+          "approved_version": 1,
+          "cache_hash": "9b1ca88f9af649340bee7c42236a1226a9e6a16f891edd8e054b65efccbbccc7",
+          "timestamp": 1791894510.587803,
+          "review_notes": "Reviewed and approved sleeve drape and healed arm contact across frames 8-15",
+          "is_production_authorized": true
+        }
       }
     },
     "scenario_2_contradictory_prompt": {
       "prompt": "Rigid cast-iron breastplate armor fluttering and swirling like gossamer silk chiffon in the breeze",
       "clarification_tool_call": {
         "ambiguity_type": "contradictory_requirements",
-        "clarification_question": "Should the breastplate armor be rigid and cast-iron, or should it flutter and swirl like gossamer silk chiffon?",
-        "context": "The artist has specified both rigidity and fluid-like behavior for the breastplate, which are contradictory requirements.",
+        "clarification_question": "Should the breastplate armor be rigid and heavy like cast-iron, or should it flutter and swirl like gossamer silk chiffon?",
+        "context": "The artist has specified both rigidity and fluidity, which are contradictory requirements.",
         "suggested_options": [
-          "Rigid cast-iron breastplate",
-          "Fluttering gossamer silk chiffon"
+          "Rigid and heavy",
+          "Fluttering and light"
         ]
       },
       "validation_passed": true
     },
     "scenario_3_unresolved_conflict": {
       "conflict_diagnosis": {
-        "failure_mode": "deep_penetration",
+        "failure_mode": "collider_tunneling",
         "raw_penetration_depth_mm": 4.2,
-        "recommended_repair_strategy": "Increase collision margin and substeps",
-        "root_cause": "Collider geometry is too tight, causing deep penetration.",
+        "recommended_repair_strategy": "Increase collision margin and solver substeps",
+        "root_cause": "The waist hem is trapped inside intersecting collider geometry, causing negative separation and exceeding the safe displacement threshold.",
         "violating_frames": [
           10,
-          20
+          11
         ]
       },
       "final_recommendation": {
         "recommended_status": "UNRESOLVED_FAILED",
-        "score": 30,
-        "summary": "Simulation failed due to unresolvable deep penetration despite bounded repair attempts. Quality score reflects critical issues.",
+        "score": 0,
+        "summary": "The simulation failed to converge due to excessive vertex displacement and unresolved negative collider clearance. Upstream geometry adjustments are required to resolve the issue.",
         "tolerance_checks": {
           "penetration_passed": false,
-          "strain_passed": true,
-          "stability_passed": true
+          "strain_passed": false,
+          "stability_passed": false
         }
       },
       "validation_passed": true
+    }
+  },
+  "assets": {
+    "shot020": {
+      "file": "shot020_production_input.abc",
+      "samples": 24,
+      "garment_faces": 1360,
+      "body_faces": 384
+    },
+    "shot030_long_action": {
+      "file": "shot030_action_long_input.abc",
+      "samples": 100,
+      "garment_vertices": 824,
+      "garment_faces": 1496,
+      "character_vertices": 256,
+      "character_faces": 448,
+      "chair_vertices": 40,
+      "chair_faces": 44,
+      "phases": [
+        "Phase 1 (Frames 1-30): Running motion with arm swing and leg strides",
+        "Phase 2 (Frames 31-50): Stopping and forward deceleration",
+        "Phase 3 (Frames 51-75): Crossed arms compressing tightly against chest",
+        "Phase 4 (Frames 76-100): Sitting motion onto rigid chair prop collider"
+      ]
     }
   }
 }

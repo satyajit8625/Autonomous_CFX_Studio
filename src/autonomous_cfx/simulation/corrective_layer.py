@@ -262,40 +262,19 @@ class CorrectiveLayerEngine:
         collider: MeshGeometry,
         margin: float,
         target_indices: Optional[List[int]] = None,
-        max_proximity_threshold: float = 0.05
+        max_proximity_threshold: Optional[float] = None
     ) -> float:
         """Calculate max true penetration depth inside collider volume in millimeters.
 
-        Args:
-            cloth: Simulated cloth mesh.
-            collider: Collision geometry mesh.
-            margin: Desired safety margin in meters.
-            target_indices: Optional vertex subset to test.
-            max_proximity_threshold: Distance threshold (meters) for contact search.
-                Excludes distant geometry to prevent spurious signed distance projections.
+        Uses PenetrationClassifier separating contact acceleration from volumetric classification:
+        - Accurately captures deep penetrations beyond 50 mm without artificial cutoffs.
+        - Robust against concave bodies, nearby limbs, open meshes, and far-away cloth.
         """
-        test_verts = cloth.vertices[target_indices] if target_indices is not None else cloth.vertices
-        if len(test_verts) == 0:
-            return 0.0
-
-        kdtree = KDTree(collider.vertices)
-        normals = collider.compute_normals()
-
-        dists, indices = kdtree.query(test_verts)
-
-        # Only evaluate vertices within contact proximity (< 50 mm)
-        contact_mask = dists < max_proximity_threshold
-        if not np.any(contact_mask):
-            return 0.0
-
-        col_pts = collider.vertices[indices[contact_mask]]
-        col_n = normals[indices[contact_mask]]
-
-        to_cloth = test_verts[contact_mask] - col_pts
-        signed_dists = np.sum(to_cloth * col_n, axis=1)
-
-        penetrating = signed_dists < 0.0
-        if np.any(penetrating):
-            max_pen = float(np.max(-signed_dists[penetrating]))
-            return max_pen * 1000.0  # mm
-        return 0.0
+        from autonomous_cfx.core.collision_detector import PenetrationClassifier
+        result = PenetrationClassifier.evaluate_penetration(
+            cloth=cloth,
+            collider=collider,
+            margin=margin,
+            target_indices=target_indices
+        )
+        return float(result.max_penetration_mm)

@@ -103,9 +103,12 @@ def test_temporal_corrective_layer_execution():
     for f in range(1, 21):
         v_copy = np.copy(jacket.vertices)
         if 8 <= f <= 14:
-            # Push vertex 42 deep inside the body collider at that frame
-            nearest_body_v = body_frames[f - 1].vertices[10]
-            v_copy[penetrating_v_idx] = nearest_body_v - np.array([0.0, 0.0, 0.02], dtype=np.float32)
+            # Push vertex 42 deep inside the body collider at that frame along normal
+            b_geom_f = body_frames[f - 1]
+            b_normals = b_geom_f.compute_normals()
+            nearest_body_v = b_geom_f.vertices[10]
+            b_n = b_normals[10]
+            v_copy[penetrating_v_idx] = nearest_body_v - b_n * 0.025
         cloth_frames.append(MeshGeometry(name=f"cloth_{f}", vertices=v_copy, faces=jacket.faces))
 
     # Formulate structured request
@@ -132,8 +135,8 @@ def test_temporal_corrective_layer_execution():
 
     target_sel = SurfaceSelection(
         selected_faces=[5],
-        selected_vertices=[penetrating_v_idx, penetrating_v_idx + 1],
-        vertex_weights={penetrating_v_idx: 1.0, penetrating_v_idx + 1: 0.7},
+        selected_vertices=[penetrating_v_idx],
+        vertex_weights={penetrating_v_idx: 1.0},
         falloff_radius=0.05
     )
 

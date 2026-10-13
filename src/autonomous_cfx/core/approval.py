@@ -40,6 +40,27 @@ class ApprovalRecord:
             "is_production_authorized": self.is_production_authorized,
         }
 
+    @staticmethod
+    def compute_cache_hash(
+        frames: List[MeshGeometry],
+        version: int,
+        shot_name: str = "shot020"
+    ) -> str:
+        """Compute cryptographic SHA-256 digest of cache vertex content bound to version and shot."""
+        hasher = hashlib.sha256()
+        hasher.update(shot_name.encode("utf-8"))
+        hasher.update(str(version).encode("utf-8"))
+        for f_idx, geom in enumerate(frames):
+            hasher.update(str(f_idx).encode("utf-8"))
+            hasher.update(geom.vertices.tobytes())
+        return hasher.hexdigest()
+
+    def verify_binding(self, current_cache_hash: str, current_version: int) -> bool:
+        """Verify that this approval is cryptographically bound to the active result version and hash."""
+        if self.approved_version != current_version:
+            return False
+        return self.cache_hash == current_cache_hash
+
     @classmethod
     def create_human_approval(
         cls,
@@ -48,7 +69,7 @@ class ApprovalRecord:
         artist_name: Optional[str] = None,
         notes: str = ""
     ) -> ApprovalRecord:
-        """Create genuine human artist approval event."""
+        """Create genuine human artist approval event via interactive operator signoff."""
         actor = artist_name or getpass.getuser() or "artist"
         return cls(
             authority=ApprovalAuthority.HUMAN_ARTIST,

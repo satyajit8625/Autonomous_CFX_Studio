@@ -18,6 +18,7 @@ def create_cylinder_mesh(
     segments: int = 16,
     rings: int = 8,
     axis: str = "y",
+    capped: bool = True,
 ) -> MeshGeometry:
     """Helper to generate an open or capped cylinder mesh."""
     verts = []
@@ -53,8 +54,19 @@ def create_cylinder_mesh(
             i1 = ring_idx * segments + next_seg
             i2 = (ring_idx + 1) * segments + seg
             i3 = (ring_idx + 1) * segments + next_seg
-            faces.append([i0, i1, i3])
-            faces.append([i0, i3, i2])
+            faces.append([i0, i2, i1])
+            faces.append([i1, i2, i3])
+
+    if capped and axis == "y":
+        bot_idx = len(verts)
+        verts.append(np.array([0.0, -height / 2.0, 0.0], dtype=np.float32) + center)
+        for seg in range(segments):
+            faces.append([bot_idx, seg, (seg + 1) % segments])
+        top_idx = len(verts)
+        verts.append(np.array([0.0, height / 2.0, 0.0], dtype=np.float32) + center)
+        top_start = (rings - 1) * segments
+        for seg in range(segments):
+            faces.append([top_idx, top_start + (seg + 1) % segments, top_start + seg])
 
     return MeshGeometry(
         name="cylinder",
