@@ -8,6 +8,159 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import numpy as np
 
+try:
+    from numba import njit
+    NUMBA_AVAILABLE = True
+except ImportError:
+    NUMBA_AVAILABLE = False
+
+
+if NUMBA_AVAILABLE:
+    @njit(fastmath=True)
+    def _project_distance_numba(
+        positions: np.ndarray,
+        inv_masses: np.ndarray,
+        edges: np.ndarray,
+        rest_lengths: np.ndarray,
+        lambdas: np.ndarray,
+        inv_deg: np.ndarray,
+        compliance: float,
+        dt: float,
+    ) -> None:
+        E = edges.shape[0]
+        alpha_tilde = compliance / (dt * dt)
+        delta_pos = np.zeros_like(positions)
+
+        for e in range(E):
+            i0 = edges[e, 0]
+            i1 = edges[e, 1]
+            w0 = inv_masses[i0]
+            w1 = inv_masses[i1]
+            w_sum = w0 + w1
+            if w_sum < 1e-7:
+                continue
+
+            dx = positions[i0, 0] - positions[i1, 0]
+            dy = positions[i0, 1] - positions[i1, 1]
+            dz = positions[i0, 2] - positions[i1, 2]
+            dist = np.sqrt(dx * dx + dy * dy + dz * dz)
+            if dist < 1e-7:
+                nx = 0.0
+                ny = 1.0
+                nz = 0.0
+            else:
+                inv_dist = 1.0 / dist
+                nx = dx * inv_dist
+                ny = dy * inv_dist
+                nz = dz * inv_dist
+
+            c = dist - rest_lengths[e]
+            lam = lambdas[e]
+            delta_lambda = (-c - alpha_tilde * lam) / (w_sum + alpha_tilde)
+            lambdas[e] = lam + delta_lambda
+
+            factor0 = w0 * delta_lambda
+            delta_pos[i0, 0] += factor0 * nx
+            delta_pos[i0, 1] += factor0 * ny
+            delta_pos[i0, 2] += factor0 * nz
+
+            factor1 = -w1 * delta_lambda
+            delta_pos[i1, 0] += factor1 * nx
+            delta_pos[i1, 1] += factor1 * ny
+            delta_pos[i1, 2] += factor1 * nz
+
+        N = positions.shape[0]
+        has_deg = len(inv_deg) == N
+        max_d = 0.05
+        for i in range(N):
+            scale = inv_deg[i] if has_deg else 1.0
+            dx = delta_pos[i, 0] * scale
+            dy = delta_pos[i, 1] * scale
+            dz = delta_pos[i, 2] * scale
+            d_len = np.sqrt(dx * dx + dy * dy + dz * dz)
+            if d_len > max_d:
+                clamp_scale = max_d / (d_len + 1e-7)
+                dx *= clamp_scale
+                dy *= clamp_scale
+                dz *= clamp_scale
+            positions[i, 0] += dx
+            positions[i, 1] += dy
+            positions[i, 2] += dz
+
+    @njit(fastmath=True)
+    def _project_bending_numba(
+        positions: np.ndarray,
+        inv_masses: np.ndarray,
+        quads: np.ndarray,
+        rest_distances: np.ndarray,
+        lambdas: np.ndarray,
+        inv_deg: np.ndarray,
+        compliance: float,
+        dt: float,
+    ) -> None:
+        B = quads.shape[0]
+        alpha_tilde = compliance / (dt * dt)
+        delta_pos = np.zeros_like(positions)
+
+        for b in range(B):
+            o1 = quads[b, 2]
+            o2 = quads[b, 3]
+            w1 = inv_masses[o1]
+            w2 = inv_masses[o2]
+            w_sum = w1 + w2
+            if w_sum < 1e-7:
+                continue
+
+            dx = positions[o1, 0] - positions[o2, 0]
+            dy = positions[o1, 1] - positions[o2, 1]
+            dz = positions[o1, 2] - positions[o2, 2]
+            dist = np.sqrt(dx * dx + dy * dy + dz * dz)
+            if dist < 1e-7:
+                nx = 0.0
+                ny = 1.0
+                nz = 0.0
+            else:
+                inv_dist = 1.0 / dist
+                nx = dx * inv_dist
+                ny = dy * inv_dist
+                nz = dz * inv_dist
+
+            c = dist - rest_distances[b]
+            lam = lambdas[b]
+            delta_lambda = (-c - alpha_tilde * lam) / (w_sum + alpha_tilde)
+            lambdas[b] = lam + delta_lambda
+
+            factor1 = w1 * delta_lambda
+            delta_pos[o1, 0] += factor1 * nx
+            delta_pos[o1, 1] += factor1 * ny
+            delta_pos[o1, 2] += factor1 * nz
+
+            factor2 = -w2 * delta_lambda
+            delta_pos[o2, 0] += factor2 * nx
+            delta_pos[o2, 1] += factor2 * ny
+            delta_pos[o2, 2] += factor2 * nz
+
+        N = positions.shape[0]
+        has_deg = len(inv_deg) == N
+        max_d = 0.05
+        for i in range(N):
+            scale = inv_deg[i] if has_deg else 1.0
+            dx = delta_pos[i, 0] * scale
+            dy = delta_pos[i, 1] * scale
+            dz = delta_pos[i, 2] * scale
+            d_len = np.sqrt(dx * dx + dy * dy + dz * dz)
+            if d_len > max_d:
+                clamp_scale = max_d / (d_len + 1e-7)
+                dx *= clamp_scale
+                dy *= clamp_scale
+                dz *= clamp_scale
+            positions[i, 0] += dx
+            positions[i, 1] += dy
+            positions[i, 2] += dz
+else:
+    _project_distance_numba = None
+    _project_bending_numba = None
+
 
 @dataclass
 class AnimatedAttachment:
@@ -71,6 +224,19 @@ class DistanceConstraintBatch:
     ) -> None:
         """Vectorized XPBD distance projection with Jacobi under-relaxation."""
         if len(self.edges) == 0:
+            return
+
+        if NUMBA_AVAILABLE:
+            _project_distance_numba(
+                positions,
+                inv_masses,
+                self.edges,
+                self.rest_lengths,
+                self.lambdas,
+                self.inv_deg,
+                float(self.compliance),
+                float(dt),
+            )
             return
 
         i0 = self.edges[:, 0]
@@ -164,6 +330,19 @@ class BendingConstraintBatch:
     ) -> None:
         """Vectorized bending projection on opposite vertices o1 and o2 with Jacobi stabilization."""
         if len(self.quads) == 0:
+            return
+
+        if NUMBA_AVAILABLE:
+            _project_bending_numba(
+                positions,
+                inv_masses,
+                self.quads,
+                self.rest_distances,
+                self.lambdas,
+                self.inv_deg,
+                float(self.compliance),
+                float(dt),
+            )
             return
 
         o1 = self.quads[:, 2]

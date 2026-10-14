@@ -1,0 +1,115 @@
+{
+  "timestamp": 1791952513.8111057,
+  "date": "2026-10-14 10:05:13",
+  "environment": {
+    "os": "win32",
+    "python_version": "3.10.11 (tags/v3.10.11:7d4cc5a, Apr  5 2023, 00:38:17) [MSC v.1929 64 bit (AMD64)]",
+    "cpu_count_physical": 6,
+    "cpu_count_logical": 12,
+    "total_ram_gb": 31.92,
+    "gpu": {
+      "total_mb": 6144.0,
+      "used_mb": 1421.0,
+      "free_mb": 4582.0
+    }
+  },
+  "subsystems": {
+    "startup": {
+      "module_import_seconds": 0.0,
+      "ui_window_instantiation_seconds": 0.4101,
+      "total_startup_seconds": 0.4102,
+      "peak_rss_mb": 224.05
+    },
+    "alembic_io": {
+      "shot020": {
+        "file_path": "evidence/exports/shot020_production_input.abc",
+        "file_size_mb": 0.074,
+        "total_frames": 24,
+        "total_vertices": 980,
+        "total_faces": 1744,
+        "inspect_seconds": 0.0015,
+        "load_all_samples_seconds": 0.5893,
+        "samples_per_second": 40.7,
+        "ram_delta_mb": 56.18
+      },
+      "shot030": {
+        "file_path": "evidence/exports/shot030_action_long_input.abc",
+        "file_size_mb": 0.243,
+        "total_frames": 100,
+        "total_vertices": 1120,
+        "total_faces": 1988,
+        "inspect_seconds": 0.0007,
+        "load_all_samples_seconds": 0.0726,
+        "samples_per_second": 1377.0,
+        "ram_delta_mb": 5.22
+      }
+    },
+    "viewport": {
+      "resolution": "1280x720",
+      "cloth_verts": 520,
+      "cloth_faces": 926,
+      "collider_count": 2,
+      "single_frame_paint_ms": 7.85,
+      "estimated_paint_fps": 127.5,
+      "orbit_redraw_ms": 5.27,
+      "estimated_orbit_fps": 189.7
+    },
+    "ai_inference": {
+      "prompts_tested": 3,
+      "mean_parse_time_ms": 0.41,
+      "parses_per_second": 2459.2
+    },
+    "simulation": {
+      "shot020_24f": {
+        "frames": 24,
+        "substeps": 16,
+        "iterations": 4,
+        "cloth_vertices": 756,
+        "cloth_faces": 1360,
+        "total_simulation_seconds": 3.6191,
+        "per_frame_ms": 150.79,
+        "simulation_fps": 6.63,
+        "ram_delta_mb": 28.08
+      },
+      "shot030_50f": {
+        "frames": 50,
+        "substeps": 16,
+        "iterations": 4,
+        "cloth_vertices": 824,
+        "cloth_faces": 1496,
+        "total_simulation_seconds": 1.688,
+        "per_frame_ms": 33.76,
+        "simulation_fps": 29.62,
+        "ram_delta_mb": 2.01
+      },
+      "microbenchmarks": {
+        "distance_100_evals_ms": 4.86,
+        "bending_100_evals_ms": 0.51
+      }
+    },
+    "collision_detection": {
+      "collider_vertices": 250,
+      "cloth_query_points": 800,
+      "queries_executed": 100,
+      "total_query_seconds": 0.0635,
+      "per_query_ms": 0.635,
+      "queries_per_second": 1573.6
+    },
+    "corrections_and_quality": {
+      "corrective_layer_20f_ms": 97.24,
+      "quality_evaluation_100f_ms": 11.12
+    },
+    "export": {
+      "exported_frames": 24,
+      "export_seconds": 0.01,
+      "frames_per_second": 2401.3,
+      "file_size_kb": 164.69
+    }
+  },
+  "workstation_summary": {
+    "peak_process_rss_mb": 319.72,
+    "initial_gpu_used_mb": 1421.0,
+    "final_gpu_used_mb": 1416.0,
+    "gpu_vram_delta_mb": -5.0
+  }
+}

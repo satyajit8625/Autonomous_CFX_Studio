@@ -53,11 +53,20 @@ def _worker_bootstrap(
     pid = os.getpid()
     ipc_queue.put({"type": "started", "pid": pid})
 
+    last_emit_time = 0.0
+    last_stage = ""
+
     def progress_proxy(stage: str, cur: int, total: int, extra: dict = None):
+        nonlocal last_emit_time, last_stage
         if cancel_event.is_set():
             return
+        now = time.time()
         pct = float(cur) / float(max(1, total)) * 100.0
-        ipc_queue.put({"type": "progress", "stage": stage, "percent": pct, "extra": extra or {}})
+        # Throttle progress emissions to max 20 Hz (50ms interval) unless stage changes or completion reached
+        if stage != last_stage or pct >= 100.0 or cur == 0 or (now - last_emit_time >= 0.05):
+            last_emit_time = now
+            last_stage = stage
+            ipc_queue.put({"type": "progress", "stage": stage, "percent": pct, "extra": extra or {}})
 
     try:
         # Inject progress_callback and cancel_check if target supports them

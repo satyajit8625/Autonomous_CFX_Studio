@@ -48,6 +48,12 @@ from autonomous_cfx.core.approval import (
     ApprovalRecord,
 )
 from autonomous_cfx.core.cache_io import SimulationCache
+from autonomous_cfx.core.camera import (
+    CameraMode,
+    FilmFitMode,
+    ShotCamera,
+    ShotCameraSample,
+)
 from autonomous_cfx.core.geometry import MeshGeometry
 from autonomous_cfx.core.logger import logger
 from autonomous_cfx.core.project import ProjectManager
@@ -146,6 +152,10 @@ class AutonomousCFXMainWindow(QMainWindow):
         act_load_abc.triggered.connect(self._on_import_alembic_shot)
         menu_file.addAction(act_load_abc)
 
+        act_import_cam = QAction("🎥 Import Camera Alembic (.abc)...", self)
+        act_import_cam.triggered.connect(self._on_import_camera_alembic)
+        menu_file.addAction(act_import_cam)
+
         act_load_demo = QAction("📂 Load Demo Scene (Jacket + Body + Chair)", self)
         act_load_demo.triggered.connect(self._on_load_demo_scene)
         menu_file.addAction(act_load_demo)
@@ -189,6 +199,15 @@ class AutonomousCFXMainWindow(QMainWindow):
         )
         btn_import_abc.clicked.connect(self._on_import_alembic_shot)
         top_layout.addWidget(btn_import_abc)
+
+        # Quick Import Camera button
+        btn_import_cam = QPushButton("🎥 Import Camera")
+        btn_import_cam.setStyleSheet(
+            "QPushButton { background-color: #1e293b; color: #cbd5e1; font-weight: 600; padding: 5px 10px; border-radius: 4px; border: 1px solid #334155; }"
+            "QPushButton:hover { background-color: #334155; color: #ffffff; }"
+        )
+        btn_import_cam.clicked.connect(self._on_import_camera_alembic)
+        top_layout.addWidget(btn_import_cam)
 
         # Quick Load Demo Scene button
         btn_demo = QPushButton("📂 Load Demo Scene")
@@ -462,6 +481,37 @@ class AutonomousCFXMainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Alembic Import Error", f"Failed to import Alembic archive: {e}")
 
+    def _on_import_camera_alembic(self):
+        """Import camera animation from a standalone Alembic archive (.abc)."""
+        file_path, _ = QFileDialog.getOpenFileName(self, "Import Camera Alembic", "", "Alembic Archives (*.abc)")
+        if not file_path:
+            return
+
+        try:
+            importer = AlembicShotImporter()
+            cameras = importer.load_cameras(file_path)
+            if not cameras:
+                QMessageBox.information(self, "Camera Import", f"No camera nodes found in '{Path(file_path).name}'.")
+                return
+
+            merged = dict(self.viewport.shot_cameras)
+            merged.update(cameras)
+            self.viewport.set_shot_cameras(merged)
+
+            # Select first imported camera
+            first_cam = next(iter(cameras.values()))
+            idx = self.viewport.combo_camera.findData(first_cam.name)
+            if idx >= 0:
+                self.viewport.combo_camera.setCurrentIndex(idx)
+
+            cam_names = sorted({c.name for c in cameras.values()})
+            self.diagnostics_drawer.append_log(
+                f"[Camera Import] Loaded {len(cam_names)} camera(s) from '{Path(file_path).name}': {', '.join(cam_names)}"
+            )
+            self.status_bar.showMessage(f"Camera imported: {first_cam.name}")
+        except Exception as e:
+            QMessageBox.critical(self, "Camera Import Error", f"Failed to load camera from Alembic: {e}")
+
     def _on_load_demo_scene(self):
         """Load canonical milestone demo setup: Jacket cloth, Animated Body collider, Chair collider."""
         jacket, body_col, chair_col = self.asset_manager.load_milestone_package(
@@ -491,6 +541,46 @@ class AutonomousCFXMainWindow(QMainWindow):
         if chair_col:
             cols_to_view.append(chair_col.geometry)
         self.viewport.set_colliders(cols_to_view)
+
+        # Add demo animated shot camera orbiting the hero character
+        demo_samples = []
+        for f in range(1, 41):
+            t_s = (f - 1) / 24.0
+            angle = np.radians(20.0 + f * 1.5)
+            cam_x = float(2.4 * np.sin(angle))
+            cam_z = float(2.4 * np.cos(angle))
+            cam_y = float(1.2 + 0.1 * np.sin(f * 0.2))
+            eye = np.array([cam_x, cam_y, cam_z], dtype=np.float64)
+            target = np.array([0.0, 0.95, 0.0], dtype=np.float64)
+            fwd = target - eye
+            fwd /= max(1e-7, np.linalg.norm(fwd))
+            up_w = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+            r = np.cross(fwd, up_w)
+            r /= max(1e-7, np.linalg.norm(r))
+            u = np.cross(r, fwd)
+            u /= max(1e-7, np.linalg.norm(u))
+            M = np.eye(4, dtype=np.float64)
+            M[0, :3] = r
+            M[1, :3] = u
+            M[2, :3] = -fwd
+            M[3, :3] = eye
+            demo_samples.append(ShotCameraSample(
+                frame=float(f),
+                time_seconds=t_s,
+                world_matrix=M,
+                focal_length_mm=50.0,
+                horizontal_aperture_mm=36.0,
+                vertical_aperture_mm=24.0,
+            ))
+        demo_cam = ShotCamera(
+            name="hero_orbit_cam",
+            full_path="/cameras/hero_orbit_cam",
+            fps=24.0,
+            start_frame=1,
+            samples=demo_samples,
+            film_fit=FilmFitMode.OVERSCAN,
+        )
+        self.viewport.set_shot_cameras({"hero_orbit_cam": demo_cam})
         self.viewport.frame_all()  # Automatically frame character nicely!
 
         # Update Timeline
@@ -501,7 +591,7 @@ class AutonomousCFXMainWindow(QMainWindow):
         self._invalidate_approval()
         self.agent_panel.add_system_message(
             f"Loaded Demo Scene: Hero Jacket ({jacket.num_vertices} verts), "
-            f"Animated Body ({body_col.geometry.num_vertices} verts), Chair collider."
+            f"Animated Body ({body_col.geometry.num_vertices} verts), Chair collider, Shot Camera."
         )
         self.diagnostics_drawer.append_log("Loaded Demo Scene assets into memory.")
         self.status_bar.showMessage("Demo scene loaded. Roles confirmed.")
@@ -515,6 +605,13 @@ class AutonomousCFXMainWindow(QMainWindow):
             importer = AlembicShotImporter()
             shot_data = importer.load_shot(self.source_alembic_path, role_assignments=roles)
             self.loaded_shot_data = shot_data
+
+            # Set cameras if present in shot
+            if shot_data.cameras:
+                self.viewport.set_shot_cameras(shot_data.cameras)
+                self.diagnostics_drawer.append_log(
+                    f"[Shot Cameras] Loaded {len(shot_data.cameras)} camera(s) from shot archive."
+                )
 
             # Set cloth geometry
             if shot_data.garment_meshes:
@@ -564,6 +661,10 @@ class AutonomousCFXMainWindow(QMainWindow):
         if self.active_cache and frame_num in self.active_cache.frames:
             geo = self.active_cache.get_frame_geometry(frame_num)
             self.viewport.set_cloth_geometry(geo)
+
+        # Update character follow tracking in Free Inspection mode
+        if self.viewport.camera_mode == CameraMode.FREE_INSPECTION and self.viewport.free_camera_state.follow_character:
+            self.viewport.update_character_follow(self.cloth_geometry)
 
         self.viewport.update()
 

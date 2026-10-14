@@ -155,3 +155,54 @@ maya.standalone.uninitialize()
     assert result.returncode == 0, f"Maya failed: {result.stderr}"
     assert "MAYA_INGEST_OK" in result.stdout, f"Maya output did not confirm ingest: {result.stdout}"
 
+
+@pytest.mark.skipif(not ALEMBIC_AVAILABLE, reason="Alembic C++ bindings not available")
+def test_lazy_alembic_loading_and_streaming():
+    """Verify on-demand sample loading, caching, prefetching, and memory release."""
+    tmp_dir = tempfile.mkdtemp(prefix="cfx_lazy_abc_")
+    abc_path = os.path.join(tmp_dir, "stream_test.abc")
+
+    jacket = generate_procedural_jacket()
+    animated_frames = []
+    for f in range(10):
+        m = jacket.copy()
+        m.vertices[:, 1] -= f * 0.01
+        animated_frames.append(m)
+
+    exporter = AlembicShotExporter()
+    exporter.export_shot(
+        output_path=abc_path,
+        simulated_garments={"/shot/garments/jacket": animated_frames},
+        fps=24.0,
+        start_frame=1,
+    )
+
+    importer = AlembicShotImporter()
+    with importer.load_shot(abc_path, lazy=True) as shot_data:
+        garment_seq = list(shot_data.garment_meshes.values())[0]
+
+        # 1. Verify sequence length matches samples
+        assert len(garment_seq) == 10
+
+        # 2. Cache should be initially empty before access
+        assert len(garment_seq._cache) == 0
+
+        # 3. Access sample 0
+        f0 = garment_seq[0]
+        assert f0.num_vertices == jacket.num_vertices
+        assert len(garment_seq._cache) == 1
+        np.testing.assert_allclose(f0.vertices, animated_frames[0].vertices, atol=1e-5)
+
+        # 4. Access sample 9
+        f9 = garment_seq[9]
+        assert len(garment_seq._cache) == 2
+        np.testing.assert_allclose(f9.vertices, animated_frames[9].vertices, atol=1e-5)
+
+        # 5. Prefetch samples 2, 3, 4
+        garment_seq.prefetch([2, 3, 4])
+        assert len(garment_seq._cache) == 5
+
+        # 6. Clear cache
+        garment_seq.clear_cache()
+        assert len(garment_seq._cache) == 0
+

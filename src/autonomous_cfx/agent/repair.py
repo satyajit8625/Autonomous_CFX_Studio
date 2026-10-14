@@ -51,6 +51,7 @@ class BoundedRepairStrategist:
         end_frame: int,
         current_cache: Optional[SimulationCache] = None,
         progress_callback: Optional[Callable[[int, int, dict], None]] = None,
+        cancel_check: Optional[Callable[[], bool]] = None,
     ) -> Tuple[SimulationCache, QualityMetricsReport, List[RepairRecord]]:
         """Executes bounded repair loop until quality passes or bound is reached."""
         self.repair_history = []
@@ -128,6 +129,10 @@ class BoundedRepairStrategist:
             except Exception as e_v:
                 logger.debug(f"Diagnosis schema validation notice: {e_v}")
 
+            if cancel_check and cancel_check():
+                logger.warning(f"[Bounded Repair] Repair loop cancelled at attempt {attempt}.")
+                break
+
             logger.info(
                 f"[Bounded Repair Attempt {attempt}/{self.max_attempts}] Mode={f_mode}. "
                 f"Applying recipe: {', '.join(adjustments)}"
@@ -144,7 +149,7 @@ class BoundedRepairStrategist:
                 end_frame=end_frame,
             )
 
-            new_cache = engine.run(progress_callback=progress_callback)
+            new_cache = engine.run(progress_callback=progress_callback, cancel_check=cancel_check)
             best_cache = new_cache
 
             # 3. Re-evaluate

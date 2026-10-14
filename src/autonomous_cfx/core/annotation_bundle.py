@@ -30,6 +30,16 @@ class CameraParameters:
     projection_matrix: List[List[float]]  # 4x4
     near_clip: float = 0.1
     far_clip: float = 100.0
+    camera_name: str = "Free Camera"
+    camera_type: str = "free"  # 'free' or 'shot_camera'
+    focal_length_mm: float = 50.0
+    horizontal_aperture_mm: float = 36.0
+    vertical_aperture_mm: float = 24.0
+    aspect_ratio: float = 1.5
+    film_fit: str = "overscan"
+    film_offset_x_mm: float = 0.0
+    film_offset_y_mm: float = 0.0
+    gate_rect: Optional[Tuple[int, int, int, int]] = None
 
 
 @dataclass

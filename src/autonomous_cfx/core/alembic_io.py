@@ -7,12 +7,24 @@ of Autodesk Maya or other host DCCs.
 
 from __future__ import annotations
 
+import collections.abc
 from dataclasses import dataclass, field
 from enum import Enum
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
+
+try:
+    from numba import njit
+    NUMBA_AVAILABLE = True
+except ImportError:
+    NUMBA_AVAILABLE = False
+
+    def njit(*args, **kwargs):
+        def decorator(fn):
+            return fn
+        return decorator
 
 try:
     import imath
@@ -25,7 +37,89 @@ except ImportError:
     AbcGeom = None
     AbcCoreAbstract = None
 
+from autonomous_cfx.core.camera import FilmFitMode, ShotCamera, ShotCameraSample
 from autonomous_cfx.core.geometry import MeshGeometry
+from autonomous_cfx.core.logger import logger
+
+
+@njit(fastmath=True)
+def _triangulate_polygons_numba(face_counts: np.ndarray, face_indices: np.ndarray) -> np.ndarray:
+    """Numba-accelerated polygon fan triangulation."""
+    total_triangles = 0
+    for i in range(len(face_counts)):
+        c = face_counts[i]
+        if c >= 3:
+            total_triangles += c - 2
+
+    out = np.empty((total_triangles, 3), dtype=np.int32)
+    t_idx = 0
+    offset = 0
+    for i in range(len(face_counts)):
+        c = face_counts[i]
+        if c == 3:
+            out[t_idx, 0] = face_indices[offset]
+            out[t_idx, 1] = face_indices[offset + 1]
+            out[t_idx, 2] = face_indices[offset + 2]
+            t_idx += 1
+        elif c == 4:
+            out[t_idx, 0] = face_indices[offset]
+            out[t_idx, 1] = face_indices[offset + 1]
+            out[t_idx, 2] = face_indices[offset + 2]
+            t_idx += 1
+            out[t_idx, 0] = face_indices[offset]
+            out[t_idx, 1] = face_indices[offset + 2]
+            out[t_idx, 2] = face_indices[offset + 3]
+            t_idx += 1
+        elif c > 4:
+            v0 = face_indices[offset]
+            for j in range(1, c - 1):
+                out[t_idx, 0] = v0
+                out[t_idx, 1] = face_indices[offset + j]
+                out[t_idx, 2] = face_indices[offset + j + 1]
+                t_idx += 1
+        offset += c
+    return out
+
+
+def _triangulate_polygons_fallback(face_counts: np.ndarray, face_indices: np.ndarray) -> np.ndarray:
+    """Pure Python/NumPy fallback polygon fan triangulation."""
+    triangles = []
+    idx_offset = 0
+    for count in face_counts:
+        if count == 3:
+            triangles.append([
+                face_indices[idx_offset],
+                face_indices[idx_offset + 1],
+                face_indices[idx_offset + 2]
+            ])
+        elif count == 4:
+            triangles.append([
+                face_indices[idx_offset],
+                face_indices[idx_offset + 1],
+                face_indices[idx_offset + 2]
+            ])
+            triangles.append([
+                face_indices[idx_offset],
+                face_indices[idx_offset + 2],
+                face_indices[idx_offset + 3]
+            ])
+        elif count > 4:
+            v0 = face_indices[idx_offset]
+            for j in range(1, count - 1):
+                triangles.append([
+                    v0,
+                    face_indices[idx_offset + j],
+                    face_indices[idx_offset + j + 1]
+                ])
+        idx_offset += count
+    return np.array(triangles, dtype=np.int32) if triangles else np.zeros((0, 3), dtype=np.int32)
+
+
+def _triangulate_polygons(face_counts: np.ndarray, face_indices: np.ndarray) -> np.ndarray:
+    """Dispatch polygon triangulation to compiled Numba kernel or fallback."""
+    if NUMBA_AVAILABLE:
+        return _triangulate_polygons_numba(face_counts, face_indices)
+    return _triangulate_polygons_fallback(face_counts, face_indices)
 
 
 class AlembicObjectRole(str, Enum):
@@ -34,6 +128,7 @@ class AlembicObjectRole(str, Enum):
     BODY = "body"
     PROP = "prop"
     IGNORED = "ignored"
+    CAMERA = "camera"
 
 
 @dataclass
@@ -41,7 +136,7 @@ class AlembicNodeInfo:
     """Metadata describing a node in an Alembic archive hierarchy."""
     name: str
     full_path: str
-    node_type: str  # 'PolyMesh', 'Xform', etc.
+    node_type: str  # 'PolyMesh', 'Xform', 'Camera', etc.
     parent_path: str
     assigned_role: AlembicObjectRole = AlembicObjectRole.IGNORED
     num_samples: int = 0
@@ -66,6 +161,7 @@ class AlembicShotSummary:
     end_time_seconds: float
     total_samples: int
     nodes: List[AlembicNodeInfo] = field(default_factory=list)
+    cameras: List[AlembicNodeInfo] = field(default_factory=list)
     up_axis: str = "Y"
     linear_units: str = "meters"
     archive_format: str = "Ogawa"
@@ -75,10 +171,103 @@ class AlembicShotSummary:
 class AlembicShotData:
     """Loaded animated geometry data ready for CFX simulation."""
     summary: AlembicShotSummary
-    garment_meshes: Dict[str, List[MeshGeometry]] = field(default_factory=dict)
-    body_colliders: Dict[str, List[MeshGeometry]] = field(default_factory=dict)
-    prop_colliders: Dict[str, List[MeshGeometry]] = field(default_factory=dict)
+    garment_meshes: Dict[str, Any] = field(default_factory=dict)
+    body_colliders: Dict[str, Any] = field(default_factory=dict)
+    prop_colliders: Dict[str, Any] = field(default_factory=dict)
     ignored_objects: List[str] = field(default_factory=list)
+    cameras: Dict[str, ShotCamera] = field(default_factory=dict)
+
+    def close(self) -> None:
+        """Release underlying Alembic archive and schema handles to free OS file locks."""
+        for mapping in (self.garment_meshes, self.body_colliders, self.prop_colliders):
+            for seq in mapping.values():
+                if hasattr(seq, "close"):
+                    seq.close()
+        import gc
+        gc.collect()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+
+class LazyAnimatedMeshSequence(collections.abc.Sequence):
+    """Memory-efficient, lazy animated mesh sequence from Alembic stream.
+    Samples geometry on demand and caches accessed frames."""
+
+    def __init__(
+        self,
+        schema: Any,
+        node_name: str,
+        node_parent_path: str,
+        num_samples: int,
+        triangles: np.ndarray,
+        uvs: Optional[np.ndarray],
+        face_sets: Dict[str, np.ndarray],
+        world_space: bool,
+        get_world_matrix_fn: Callable[[str, int], np.ndarray],
+    ):
+        self._schema = schema
+        self._node_name = node_name
+        self._node_parent_path = node_parent_path
+        self._num_samples = max(1, num_samples)
+        self._triangles = triangles
+        self._uvs = uvs
+        self._face_sets = face_sets
+        self._world_space = world_space
+        self._get_world_matrix_fn = get_world_matrix_fn
+        self._cache: Dict[int, MeshGeometry] = {}
+
+    def __len__(self) -> int:
+        return self._num_samples
+
+    def __getitem__(self, idx: Union[int, slice]) -> Any:
+        if isinstance(idx, slice):
+            return [self[i] for i in range(*idx.indices(self._num_samples))]
+        if idx < 0:
+            idx += self._num_samples
+        if not (0 <= idx < self._num_samples):
+            raise IndexError(f"Sample index {idx} out of range [0, {self._num_samples})")
+
+        if idx not in self._cache:
+            self._cache[idx] = self._load_sample(idx)
+        return self._cache[idx]
+
+    def _load_sample(self, s_idx: int) -> MeshGeometry:
+        s = self._schema.getValue(Abc.ISampleSelector(s_idx))
+        pos_raw = np.ctypeslib.as_array(s.getPositions()).copy()
+
+        if self._world_space and self._node_parent_path:
+            mat = self._get_world_matrix_fn(self._node_parent_path, s_idx)
+            homo = np.column_stack([pos_raw, np.ones((len(pos_raw), 1), dtype=np.float64)])
+            pos_world = (homo @ mat)[:, :3].astype(np.float32)
+        else:
+            pos_world = pos_raw.astype(np.float32)
+
+        return MeshGeometry(
+            vertices=pos_world,
+            faces=self._triangles,
+            uvs=self._uvs,
+            face_sets=self._face_sets,
+            name=f"{self._node_name}_f{s_idx + 1}"
+        )
+
+    def prefetch(self, frame_indices: List[int]) -> None:
+        """Prefetch a batch of frames into RAM cache."""
+        for idx in frame_indices:
+            if 0 <= idx < self._num_samples and idx not in self._cache:
+                self._cache[idx] = self._load_sample(idx)
+
+    def clear_cache(self) -> None:
+        """Evict cached frames to reclaim memory."""
+        self._cache.clear()
+
+    def close(self) -> None:
+        """Release underlying schema and C++ handles."""
+        self._schema = None
+        self._get_world_matrix_fn = None
 
 
 class AlembicShotImporter:
@@ -101,6 +290,7 @@ class AlembicShotImporter:
 
         top = archive.getTop()
         nodes: List[AlembicNodeInfo] = []
+        cameras_list: List[AlembicNodeInfo] = []
 
         # Default standard timing assumptions
         fps = 24.0
@@ -117,6 +307,7 @@ class AlembicShotImporter:
             node_type = "Object"
             is_mesh = AbcGeom.IPolyMesh.matches(meta)
             is_xform = AbcGeom.IXform.matches(meta)
+            is_camera = AbcGeom.ICamera.matches(meta)
 
             if is_mesh:
                 node_type = "PolyMesh"
@@ -183,6 +374,23 @@ class AlembicShotImporter:
                     face_sets=face_sets,
                 ))
 
+            elif is_camera:
+                node_type = "Camera"
+                cam = AbcGeom.ICamera(obj.getParent(), name)
+                schema = cam.getSchema()
+                num_s = schema.getNumSamples()
+                total_samples = max(total_samples, num_s)
+                c_node = AlembicNodeInfo(
+                    name=name,
+                    full_path=full_path,
+                    node_type="Camera",
+                    parent_path=parent_path,
+                    assigned_role=AlembicObjectRole.CAMERA,
+                    num_samples=num_s,
+                )
+                nodes.append(c_node)
+                cameras_list.append(c_node)
+
             elif is_xform:
                 node_type = "Xform"
                 nodes.append(AlembicNodeInfo(
@@ -213,16 +421,147 @@ class AlembicShotImporter:
             end_time_seconds=float(end_time),
             total_samples=total_samples,
             nodes=nodes,
+            cameras=cameras_list,
             up_axis="Y",
             linear_units="meters",
             archive_format="Ogawa",
         )
 
+    def load_cameras(self, abc_path: str) -> Dict[str, ShotCamera]:
+        """Load animated shot cameras from an Alembic (.abc) archive.
+        Resolves nested parent Xform hierarchies, time sampling rates, and optical apertures."""
+        if not os.path.exists(abc_path):
+            raise FileNotFoundError(f"Alembic file not found: {abc_path}")
+
+        archive = Abc.IArchive(abc_path)
+        top = archive.getTop()
+        cameras: Dict[str, ShotCamera] = {}
+        camera_nodes: List[Tuple[Any, str, str]] = []
+
+        def _find_cameras(obj, parent_path: str):
+            meta = obj.getMetaData()
+            name = obj.getName()
+            full_path = obj.getFullName()
+            if AbcGeom.ICamera.matches(meta):
+                camera_nodes.append((obj.getParent(), name, parent_path))
+            for i in range(obj.getNumChildren()):
+                _find_cameras(obj.getChild(i), full_path)
+
+        for i in range(top.getNumChildren()):
+            _find_cameras(top.getChild(i), "/")
+
+        _xform_chain_cache: Dict[str, List[AbcGeom.IXform]] = {}
+
+        def _resolve_xform_chain(obj_path: str) -> List[AbcGeom.IXform]:
+            if not obj_path or obj_path == "/":
+                return []
+            if obj_path in _xform_chain_cache:
+                return _xform_chain_cache[obj_path]
+
+            parts = [p for p in obj_path.split("/") if p]
+            curr = top
+            chain = []
+            for part in parts:
+                child = None
+                for i in range(curr.getNumChildren()):
+                    if curr.getChild(i).getName() == part:
+                        child = curr.getChild(i)
+                        break
+                if child is None:
+                    break
+                if AbcGeom.IXform.matches(child.getMetaData()):
+                    chain.append(AbcGeom.IXform(curr, part))
+                curr = child
+
+            _xform_chain_cache[obj_path] = chain
+            return chain
+
+        for parent_obj, cam_shape_name, parent_path in camera_nodes:
+            cam = AbcGeom.ICamera(parent_obj, cam_shape_name)
+            schema = cam.getSchema()
+            num_samples = schema.getNumSamples()
+            ts = schema.getTimeSampling()
+            tst = ts.getTimeSamplingType()
+            time_per_sample = tst.getTimePerCycle() if tst.getTimePerCycle() > 1e-6 else 1.0 / 24.0
+            fps = round(1.0 / time_per_sample, 2)
+
+            parent_full_path = parent_obj.getFullName()
+            xform_chain = _resolve_xform_chain(parent_full_path)
+
+            samples: List[ShotCameraSample] = []
+            unsupported: List[str] = []
+
+            for s_idx in range(num_samples):
+                try:
+                    s = schema.getValue(s_idx)
+                except Exception:
+                    s = schema.getValue(Abc.ISampleSelector(s_idx))
+                t_sec = ts.getSampleTime(s_idx)
+                frame_num = int(round(t_sec * fps)) + 1 if t_sec >= 0 else s_idx + 1
+
+                # Calculate world matrix: M_world = M_local @ M_parent1 @ M_parent2 ...
+                mat = np.eye(4, dtype=np.float64)
+                for xf in xform_chain:
+                    xs = xf.getSchema()
+                    s_count = xs.getNumSamples()
+                    target_idx = min(s_idx, max(0, s_count - 1))
+                    try:
+                        m_val = xs.getValue(target_idx).getMatrix()
+                    except Exception:
+                        m_val = xs.getValue(Abc.ISampleSelector(target_idx)).getMatrix()
+                    mat = mat @ np.array(m_val, dtype=np.float64).reshape((4, 4))
+
+                f_mm = float(s.getFocalLength())
+                h_ap_mm = float(s.getHorizontalAperture()) * 10.0
+                v_ap_mm = float(s.getVerticalAperture()) * 10.0
+                near_c = float(s.getNearClippingPlane())
+                far_c = float(s.getFarClippingPlane())
+                h_off_mm = float(s.getHorizontalFilmOffset()) * 10.0
+                v_off_mm = float(s.getVerticalFilmOffset()) * 10.0
+                squeeze = float(s.getLensSqueezeRatio())
+
+                samples.append(ShotCameraSample(
+                    frame=float(frame_num),
+                    time_seconds=float(t_sec),
+                    world_matrix=mat,
+                    focal_length_mm=f_mm,
+                    horizontal_aperture_mm=h_ap_mm,
+                    vertical_aperture_mm=v_ap_mm,
+                    near_clip=near_c,
+                    far_clip=far_c,
+                    horizontal_offset_mm=h_off_mm,
+                    vertical_offset_mm=v_off_mm,
+                    lens_squeeze=squeeze,
+                ))
+
+            cam_name = parent_obj.getName() if parent_obj.getName() != "/" else cam_shape_name
+            shot_cam = ShotCamera(
+                name=cam_name,
+                full_path=cam.getFullName(),
+                fps=fps,
+                start_frame=int(samples[0].frame) if samples else 1,
+                samples=samples,
+                film_fit=FilmFitMode.OVERSCAN,
+                unsupported_features=unsupported,
+            )
+            cameras[cam_name] = shot_cam
+            cameras[cam.getFullName()] = shot_cam
+            logger.info(
+                f"[Alembic] Loaded camera '{cam_name}': {len(samples)} samples, "
+                f"f={samples[0].focal_length_mm:.1f}mm, film={samples[0].horizontal_aperture_mm:.1f}x{samples[0].vertical_aperture_mm:.1f}mm"
+            )
+
+        del top, archive
+        import gc
+        gc.collect()
+        return cameras
+
     def load_shot(
         self,
         abc_path: str,
         role_assignments: Optional[Dict[str, AlembicObjectRole]] = None,
-        world_space: bool = True
+        world_space: bool = True,
+        lazy: bool = False,
     ) -> AlembicShotData:
         """Load animated geometry streams from an Alembic archive with role assignment and coordinate transform."""
         summary = self.inspect_archive(abc_path)
@@ -237,39 +576,44 @@ class AlembicShotImporter:
                 elif node.name in role_assignments:
                     node.assigned_role = role_assignments[node.name]
 
-        garment_meshes: Dict[str, List[MeshGeometry]] = {}
-        body_colliders: Dict[str, List[MeshGeometry]] = {}
-        prop_colliders: Dict[str, List[MeshGeometry]] = {}
+        garment_meshes: Dict[str, Any] = {}
+        body_colliders: Dict[str, Any] = {}
+        prop_colliders: Dict[str, Any] = {}
         ignored_objects: List[str] = []
+        cameras = self.load_cameras(abc_path)
 
-        # Helper to compute world matrix chain along hierarchy
+        # Cached hierarchy lookup for Xform nodes to avoid repeated string searches per frame
+        _xform_chain_cache: Dict[str, List[AbcGeom.IXform]] = {}
+
         def _get_world_matrix_for_path(obj_path: str, sample_idx: int) -> np.ndarray:
             if not world_space or obj_path == "/" or not obj_path:
                 return np.eye(4, dtype=np.float64)
 
-            parts = [p for p in obj_path.split("/") if p]
-            curr = top
-            mat = np.eye(4, dtype=np.float64)
-
-            for part in parts:
-                child = None
-                for i in range(curr.getNumChildren()):
-                    if curr.getChild(i).getName() == part:
-                        child = curr.getChild(i)
+            if obj_path not in _xform_chain_cache:
+                parts = [p for p in obj_path.split("/") if p]
+                curr = top
+                chain = []
+                for part in parts:
+                    child = None
+                    for i in range(curr.getNumChildren()):
+                        if curr.getChild(i).getName() == part:
+                            child = curr.getChild(i)
+                            break
+                    if child is None:
                         break
-                if child is None:
-                    break
+                    if AbcGeom.IXform.matches(child.getMetaData()):
+                        chain.append(AbcGeom.IXform(curr, part))
+                    curr = child
+                _xform_chain_cache[obj_path] = chain
 
-                if AbcGeom.IXform.matches(child.getMetaData()):
-                    xform = AbcGeom.IXform(curr, part)
-                    xs = xform.getSchema()
-                    s_count = xs.getNumSamples()
-                    sel = Abc.ISampleSelector(min(sample_idx, max(0, s_count - 1)))
-                    m = xs.getValue(sel).getMatrix()
-                    m_np = np.array(m, dtype=np.float64).reshape((4, 4))
-                    mat = mat @ m_np
-                curr = child
-
+            chain = _xform_chain_cache[obj_path]
+            mat = np.eye(4, dtype=np.float64)
+            for xf in chain:
+                xs = xf.getSchema()
+                s_count = xs.getNumSamples()
+                sel = Abc.ISampleSelector(min(sample_idx, max(0, s_count - 1)))
+                m = xs.getValue(sel).getMatrix()
+                mat = mat @ np.array(m, dtype=np.float64).reshape((4, 4))
             return mat
 
         # Extract mesh samples for active roles
@@ -299,30 +643,8 @@ class AlembicShotImporter:
             face_counts = np.ctypeslib.as_array(s0.getFaceCounts()).copy()
             face_indices = np.ctypeslib.as_array(s0.getFaceIndices()).copy()
 
-            # Convert face_indices + face_counts to Nx3 triangle array
-            triangles = []
-            idx_offset = 0
-            for count in face_counts:
-                if count == 3:
-                    triangles.append([
-                        face_indices[idx_offset],
-                        face_indices[idx_offset + 1],
-                        face_indices[idx_offset + 2]
-                    ])
-                elif count == 4:
-                    # Triangulate quad
-                    triangles.append([
-                        face_indices[idx_offset],
-                        face_indices[idx_offset + 1],
-                        face_indices[idx_offset + 2]
-                    ])
-                    triangles.append([
-                        face_indices[idx_offset],
-                        face_indices[idx_offset + 2],
-                        face_indices[idx_offset + 3]
-                    ])
-                idx_offset += count
-            triangles_np = np.array(triangles, dtype=np.int32) if triangles else np.zeros((0, 3), dtype=np.int32)
+            # Accelerated polygon fan triangulation
+            triangles_np = _triangulate_polygons(face_counts, face_indices)
 
             # Extract UVs if available
             mesh_uvs = None
@@ -344,41 +666,33 @@ class AlembicShotImporter:
             except Exception:
                 pass
 
-            animated_frames: List[MeshGeometry] = []
-            for s_idx in range(num_samples):
-                s = schema.getValue(Abc.ISampleSelector(s_idx))
-                pos_raw = np.ctypeslib.as_array(s.getPositions()).copy()
-
-                # Transform to world space if required
-                if world_space and node.parent_path:
-                    mat = _get_world_matrix_for_path(node.parent_path, s_idx)
-                    homo = np.column_stack([pos_raw, np.ones((len(pos_raw), 1), dtype=np.float64)])
-                    pos_world = (homo @ mat)[:, :3].astype(np.float32)
-                else:
-                    pos_world = pos_raw.astype(np.float32)
-
-                frame_mesh = MeshGeometry(
-                    vertices=pos_world,
-                    faces=triangles_np,
-                    uvs=mesh_uvs,
-                    face_sets=face_sets_dict,
-                    name=f"{node.name}_f{s_idx + 1}"
-                )
-                animated_frames.append(frame_mesh)
+            stream = LazyAnimatedMeshSequence(
+                schema=schema,
+                node_name=node.name,
+                node_parent_path=node.parent_path,
+                num_samples=num_samples,
+                triangles=triangles_np,
+                uvs=mesh_uvs,
+                face_sets=face_sets_dict,
+                world_space=world_space,
+                get_world_matrix_fn=_get_world_matrix_for_path,
+            )
+            frames_obj = stream if lazy else list(stream)
 
             if node.assigned_role == AlembicObjectRole.GARMENT:
-                garment_meshes[node.full_path] = animated_frames
+                garment_meshes[node.full_path] = frames_obj
             elif node.assigned_role == AlembicObjectRole.BODY:
-                body_colliders[node.full_path] = animated_frames
+                body_colliders[node.full_path] = frames_obj
             elif node.assigned_role == AlembicObjectRole.PROP:
-                prop_colliders[node.full_path] = animated_frames
+                prop_colliders[node.full_path] = frames_obj
 
         return AlembicShotData(
             summary=summary,
             garment_meshes=garment_meshes,
             body_colliders=body_colliders,
             prop_colliders=prop_colliders,
-            ignored_objects=ignored_objects
+            ignored_objects=ignored_objects,
+            cameras=cameras,
         )
 
 
@@ -574,3 +888,52 @@ class AlembicShotExporter:
             clean_g = g.strip("/").split("/")[-1]
             if clean_g not in found_meshes:
                 raise ValueError(f"Exported archive missing expected garment mesh: {clean_g}")
+
+    def export_camera(
+        self,
+        output_path: str,
+        camera: ShotCamera,
+    ) -> str:
+        """Export animated camera to a standalone Alembic (.abc) archive."""
+        if not ALEMBIC_AVAILABLE:
+            raise RuntimeError("Alembic C++ geometry bindings are required for camera export.")
+
+        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+        archive = Abc.OArchive(output_path)
+        top = archive.getTop()
+
+        ts = AbcCoreAbstract.TimeSampling(1.0 / max(1e-4, camera.fps), (camera.start_frame - 1) / max(1e-4, camera.fps))
+        ts_idx = archive.addTimeSampling(ts)
+
+        # Create parent Xform
+        xform = AbcGeom.OXform(top, camera.name, ts_idx)
+        xform_schema = xform.getSchema()
+
+        # Create Camera Shape
+        cam_shape = AbcGeom.OCamera(xform, f"{camera.name}Shape", ts_idx)
+        cam_schema = cam_shape.getSchema()
+
+        for s in camera.samples:
+            # Write xform matrix
+            xf_sample = AbcGeom.XformSample()
+            m_imath = imath.M44d()
+            for r in range(4):
+                for c in range(4):
+                    m_imath[r][c] = float(s.world_matrix[r, c])
+            xf_sample.setMatrix(m_imath)
+            xform_schema.set(xf_sample)
+
+            # Write camera properties (aperture in cm)
+            c_sample = AbcGeom.CameraSample()
+            c_sample.setFocalLength(float(s.focal_length_mm))
+            c_sample.setHorizontalAperture(float(s.horizontal_aperture_mm) / 10.0)
+            c_sample.setVerticalAperture(float(s.vertical_aperture_mm) / 10.0)
+            c_sample.setNearClippingPlane(float(s.near_clip))
+            c_sample.setFarClippingPlane(float(s.far_clip))
+            c_sample.setHorizontalFilmOffset(float(s.horizontal_offset_mm) / 10.0)
+            c_sample.setVerticalFilmOffset(float(s.vertical_offset_mm) / 10.0)
+            c_sample.setLensSqueezeRatio(float(s.lens_squeeze))
+            cam_schema.set(c_sample)
+
+        del cam_schema, cam_shape, xform_schema, xform, top, archive
+        return output_path

@@ -48,38 +48,64 @@ class ImageToSurfaceMapper:
         if mesh.num_vertices == 0 or mesh.num_faces == 0:
             return depth_buffer, face_id_buffer
 
-        # Camera basis vectors
-        rad_yaw = np.radians(camera.yaw)
-        rad_pitch = np.radians(camera.pitch)
-        eye_x = camera.target[0] + camera.distance * np.cos(rad_pitch) * np.sin(rad_yaw)
-        eye_y = camera.target[1] + camera.distance * np.sin(rad_pitch)
-        eye_z = camera.target[2] + camera.distance * np.cos(rad_pitch) * np.cos(rad_yaw)
-        eye = np.array([eye_x, eye_y, eye_z], dtype=np.float32)
+        # Check if shot camera with full view matrix and gate rect is provided
+        if getattr(camera, "camera_type", "free") == "shot_camera" and camera.view_matrix and len(camera.view_matrix) == 4:
+            V = np.array(camera.view_matrix, dtype=np.float64)
+            homo = np.column_stack([mesh.vertices, np.ones(len(mesh.vertices), dtype=np.float64)])
+            p_cam = homo @ V
+            x_view = p_cam[:, 0]
+            y_view = p_cam[:, 1]
+            z_view = -p_cam[:, 2]  # positive along optical look direction
 
-        target = np.array(camera.target, dtype=np.float32)
-        forward = target - eye
-        forward /= (np.linalg.norm(forward) + 1e-7)
+            gate_x, gate_y, gate_w, gate_h = camera.gate_rect or (0, 0, w, h)
+            f = max(1e-3, getattr(camera, "focal_length_mm", 50.0))
+            h_ap = getattr(camera, "horizontal_aperture_mm", 36.0)
+            v_ap = getattr(camera, "vertical_aperture_mm", 24.0)
+            tan_fov_x = (h_ap * 0.5) / f
+            tan_fov_y = (v_ap * 0.5) / f
 
-        up_world = np.array([0.0, 1.0, 0.0], dtype=np.float32)
-        right = np.cross(forward, up_world)
-        right /= (np.linalg.norm(right) + 1e-7)
-        up = np.cross(right, forward)
-        up /= (np.linalg.norm(up) + 1e-7)
+            z_clamped = np.maximum(z_view, camera.near_clip)
+            off_x = getattr(camera, "film_offset_x_mm", 0.0) * 0.001
+            off_y = getattr(camera, "film_offset_y_mm", 0.0) * 0.001
+            x_ndc = (x_view - off_x) / (z_clamped * tan_fov_x)
+            y_ndc = (y_view - off_y) / (z_clamped * tan_fov_y)
 
-        # Transform vertices to view space
-        rel = mesh.vertices - eye
-        x_view = np.dot(rel, right)
-        y_view = np.dot(rel, up)
-        z_view = np.dot(rel, forward)
+            x_screen = gate_x + (x_ndc + 1.0) * 0.5 * gate_w
+            y_screen = gate_y + (1.0 - y_ndc) * 0.5 * gate_h
+            screen_pts = np.column_stack([x_screen, y_screen])
+        else:
+            # Camera basis vectors from yaw/pitch/distance
+            rad_yaw = np.radians(camera.yaw)
+            rad_pitch = np.radians(camera.pitch)
+            eye_x = camera.target[0] + camera.distance * np.cos(rad_pitch) * np.sin(rad_yaw)
+            eye_y = camera.target[1] + camera.distance * np.sin(rad_pitch)
+            eye_z = camera.target[2] + camera.distance * np.cos(rad_pitch) * np.cos(rad_yaw)
+            eye = np.array([eye_x, eye_y, eye_z], dtype=np.float32)
 
-        aspect = w / float(h) if h > 0 else 1.0
-        fov = camera.fov
+            target = np.array(camera.target, dtype=np.float32)
+            forward = target - eye
+            forward /= (np.linalg.norm(forward) + 1e-7)
 
-        # Perspective projection
-        z_clamped = np.maximum(z_view, camera.near_clip)
-        x_screen = (x_view / (z_clamped * fov * aspect)) * (w * 0.5) + (w * 0.5)
-        y_screen = -(y_view / (z_clamped * fov)) * (h * 0.5) + (h * 0.5)
-        screen_pts = np.column_stack([x_screen, y_screen])
+            up_world = np.array([0.0, 1.0, 0.0], dtype=np.float32)
+            right = np.cross(forward, up_world)
+            right /= (np.linalg.norm(right) + 1e-7)
+            up = np.cross(right, forward)
+            up /= (np.linalg.norm(up) + 1e-7)
+
+            # Transform vertices to view space
+            rel = mesh.vertices - eye
+            x_view = np.dot(rel, right)
+            y_view = np.dot(rel, up)
+            z_view = np.dot(rel, forward)
+
+            aspect = w / float(h) if h > 0 else 1.0
+            fov = camera.fov
+
+            # Perspective projection
+            z_clamped = np.maximum(z_view, camera.near_clip)
+            x_screen = (x_view / (z_clamped * fov * aspect)) * (w * 0.5) + (w * 0.5)
+            y_screen = -(y_view / (z_clamped * fov)) * (h * 0.5) + (h * 0.5)
+            screen_pts = np.column_stack([x_screen, y_screen])
 
         # Rasterize faces with backface culling
         faces = mesh.faces

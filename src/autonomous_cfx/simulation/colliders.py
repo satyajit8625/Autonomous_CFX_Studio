@@ -15,6 +15,110 @@ from autonomous_cfx.core.geometry import MeshGeometry, BoundingBox
 from autonomous_cfx.core.collision_detector import point_triangle_closest_point
 from autonomous_cfx.core.logger import logger
 
+try:
+    from numba import njit
+    NUMBA_AVAILABLE = True
+except ImportError:
+    NUMBA_AVAILABLE = False
+
+
+if NUMBA_AVAILABLE:
+    @njit(fastmath=True)
+    def _compute_vertex_normals_numba(vertices: np.ndarray, faces: np.ndarray) -> np.ndarray:
+        F = faces.shape[0]
+        V = vertices.shape[0]
+        vert_normals = np.zeros((V, 3), dtype=np.float32)
+
+        for f in range(F):
+            i0 = faces[f, 0]
+            i1 = faces[f, 1]
+            i2 = faces[f, 2]
+
+            ax = vertices[i1, 0] - vertices[i0, 0]
+            ay = vertices[i1, 1] - vertices[i0, 1]
+            az = vertices[i1, 2] - vertices[i0, 2]
+
+            bx = vertices[i2, 0] - vertices[i0, 0]
+            by = vertices[i2, 1] - vertices[i0, 1]
+            bz = vertices[i2, 2] - vertices[i0, 2]
+
+            cx = ay * bz - az * by
+            cy = az * bx - ax * bz
+            cz = ax * by - ay * bx
+
+            vert_normals[i0, 0] += cx
+            vert_normals[i0, 1] += cy
+            vert_normals[i0, 2] += cz
+
+            vert_normals[i1, 0] += cx
+            vert_normals[i1, 1] += cy
+            vert_normals[i1, 2] += cz
+
+            vert_normals[i2, 0] += cx
+            vert_normals[i2, 1] += cy
+            vert_normals[i2, 2] += cz
+
+        for v in range(V):
+            nx = vert_normals[v, 0]
+            ny = vert_normals[v, 1]
+            nz = vert_normals[v, 2]
+            norm = np.sqrt(nx * nx + ny * ny + nz * nz)
+            if norm > 1e-7:
+                inv_n = 1.0 / norm
+                vert_normals[v, 0] = nx * inv_n
+                vert_normals[v, 1] = ny * inv_n
+                vert_normals[v, 2] = nz * inv_n
+            else:
+                vert_normals[v, 0] = 0.0
+                vert_normals[v, 1] = 1.0
+                vert_normals[v, 2] = 0.0
+
+        return vert_normals
+
+    @njit(fastmath=True)
+    def _project_proximity_numba(
+        candidate_pts: np.ndarray,
+        closest_pts: np.ndarray,
+        target_normals: np.ndarray,
+        margin: float,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        M = candidate_pts.shape[0]
+        contact_flags = np.zeros(M, dtype=np.bool_)
+        true_pen_flags = np.zeros(M, dtype=np.bool_)
+        projected_pts = np.copy(candidate_pts)
+        contact_normals = np.zeros_like(candidate_pts)
+        signed_dists = np.zeros(M, dtype=np.float32)
+
+        for i in range(M):
+            dx = candidate_pts[i, 0] - closest_pts[i, 0]
+            dy = candidate_pts[i, 1] - closest_pts[i, 1]
+            dz = candidate_pts[i, 2] - closest_pts[i, 2]
+
+            nx = target_normals[i, 0]
+            ny = target_normals[i, 1]
+            nz = target_normals[i, 2]
+
+            s_dist = dx * nx + dy * ny + dz * nz
+            signed_dists[i] = s_dist
+
+            if s_dist < margin:
+                contact_flags[i] = True
+                pushout = margin - s_dist
+                projected_pts[i, 0] = candidate_pts[i, 0] + pushout * nx
+                projected_pts[i, 1] = candidate_pts[i, 1] + pushout * ny
+                projected_pts[i, 2] = candidate_pts[i, 2] + pushout * nz
+                contact_normals[i, 0] = nx
+                contact_normals[i, 1] = ny
+                contact_normals[i, 2] = nz
+
+            if s_dist < 0.0:
+                true_pen_flags[i] = True
+
+        return contact_flags, true_pen_flags, projected_pts, contact_normals, signed_dists
+else:
+    _compute_vertex_normals_numba = None
+    _project_proximity_numba = None
+
 
 @dataclass
 class CollisionMeasurement:
@@ -134,11 +238,15 @@ class AnimatedMeshCollider(Collider):
 
     def update_frame(self, frame: float) -> None:
         """Interpolate vertices for frame (supporting sub-frame fractions)."""
-        self.prev_vertices = np.copy(self.current_vertices)
-        self.current_frame = frame
-
         if not self.animation_frames:
             return
+
+        if hasattr(self, "_last_evaluated_frame") and abs(self._last_evaluated_frame - frame) < 1e-5:
+            return
+        self._last_evaluated_frame = frame
+
+        self.prev_vertices = np.copy(self.current_vertices)
+        self.current_frame = frame
 
         f_floor = int(np.floor(frame))
         f_ceil = int(np.ceil(frame))
@@ -170,19 +278,26 @@ class AnimatedMeshCollider(Collider):
             max_point=np.max(self.current_vertices, axis=0),
         )
 
-        faces = self.geometry.faces
-        v0 = self.current_vertices[faces[:, 0]]
-        v1 = self.current_vertices[faces[:, 1]]
-        v2 = self.current_vertices[faces[:, 2]]
-        face_cross = np.cross(v1 - v0, v2 - v0)
+        if NUMBA_AVAILABLE:
+            self._vertex_normals = _compute_vertex_normals_numba(
+                np.ascontiguousarray(self.current_vertices, dtype=np.float32),
+                np.ascontiguousarray(self.geometry.faces, dtype=np.int32),
+            )
+        else:
+            faces = self.geometry.faces
+            v0 = self.current_vertices[faces[:, 0]]
+            v1 = self.current_vertices[faces[:, 1]]
+            v2 = self.current_vertices[faces[:, 2]]
+            face_cross = np.cross(v1 - v0, v2 - v0)
 
-        vert_normals = np.zeros_like(self.current_vertices, dtype=np.float32)
-        for i in range(3):
-            np.add.at(vert_normals, faces[:, i], face_cross)
+            vert_normals = np.zeros_like(self.current_vertices, dtype=np.float32)
+            for i in range(3):
+                np.add.at(vert_normals, faces[:, i], face_cross)
 
-        norms = np.linalg.norm(vert_normals, axis=1, keepdims=True)
-        norms[norms == 0] = 1.0
-        self._vertex_normals = (vert_normals / norms).astype(np.float32)
+            norms = np.linalg.norm(vert_normals, axis=1, keepdims=True)
+            norms[norms == 0] = 1.0
+            self._vertex_normals = (vert_normals / norms).astype(np.float32)
+
         self._vertex_tree = KDTree(self.current_vertices)
 
     def project_points(
@@ -210,17 +325,55 @@ class AnimatedMeshCollider(Collider):
         candidate_indices = np.where(candidate_mask)[0]
         candidate_pts = points[candidate_indices]
 
-        # Step 2: Vectorized proximity query using vertex KDTree
+        # Step 2: Proximity query using vertex KDTree
         _, closest_v_idx = self._vertex_tree.query(candidate_pts)
         closest_pts = self.current_vertices[closest_v_idx]
         target_normals = self._vertex_normals[closest_v_idx]
 
+        if NUMBA_AVAILABLE:
+            (
+                c_mask_local,
+                t_mask_local,
+                proj_local,
+                normals_local,
+                s_dist_local,
+            ) = _project_proximity_numba(
+                np.ascontiguousarray(candidate_pts, dtype=np.float32),
+                np.ascontiguousarray(closest_pts, dtype=np.float32),
+                np.ascontiguousarray(target_normals, dtype=np.float32),
+                float(margin),
+            )
+
+            if np.any(c_mask_local):
+                contact_cand_idx = candidate_indices[c_mask_local]
+                contact_mask[contact_cand_idx] = True
+                projected[contact_cand_idx] = proj_local[c_mask_local]
+                contact_normals[contact_cand_idx] = normals_local[c_mask_local]
+
+                if len(self.prev_vertices) == len(self.current_vertices):
+                    active_v_idx = closest_v_idx[c_mask_local]
+                    tri_v_curr = self.current_vertices[active_v_idx]
+                    tri_v_prev = self.prev_vertices[active_v_idx]
+                    collider_velocities[contact_cand_idx] = (tri_v_curr - tri_v_prev) * self.fps
+
+            true_pen_indices = candidate_indices[t_mask_local]
+            raw_depths = -s_dist_local[t_mask_local] if np.any(t_mask_local) else np.zeros(0, dtype=np.float32)
+            max_raw = float(np.max(raw_depths)) if len(raw_depths) > 0 else 0.0
+
+            self.last_measurement = CollisionMeasurement(
+                contact_count=int(np.sum(c_mask_local)),
+                margin_intrusion_depth=float(np.max(np.maximum(0.0, margin - s_dist_local))) if np.any(c_mask_local) else 0.0,
+                true_penetration_count=int(len(true_pen_indices)),
+                raw_max_penetration_depth=max_raw,
+                penetrating_vertex_ids=list(true_pen_indices),
+            )
+            return contact_mask, projected, contact_normals, collider_velocities
+
+        # Fallback NumPy path
         diff = candidate_pts - closest_pts
         signed_dist = np.sum(diff * target_normals, axis=1)
 
-        # Contact is anything within margin
         is_contact = signed_dist < margin
-        # True penetration is strictly inside collider body (signed_dist < 0.0)
         is_true_pen = signed_dist < 0.0
 
         if np.any(is_contact):
@@ -228,18 +381,17 @@ class AnimatedMeshCollider(Collider):
             contact_mask[contact_cand_idx] = True
 
             active_normals = target_normals[is_contact]
-            corrected_pts = closest_pts[is_contact] + active_normals * margin
+            pushout = (margin - signed_dist[is_contact])[:, np.newaxis] * active_normals
+            corrected_pts = candidate_pts[is_contact] + pushout
             projected[contact_cand_idx] = corrected_pts
             contact_normals[contact_cand_idx] = active_normals
 
-            # Collider motion velocity
             if len(self.prev_vertices) == len(self.current_vertices):
                 active_v_idx = closest_v_idx[is_contact]
                 tri_v_curr = self.current_vertices[active_v_idx]
                 tri_v_prev = self.prev_vertices[active_v_idx]
                 collider_velocities[contact_cand_idx] = (tri_v_curr - tri_v_prev) * self.fps
 
-        # Record raw physical measurements
         true_pen_indices = candidate_indices[is_true_pen]
         raw_depths = -signed_dist[is_true_pen] if np.any(is_true_pen) else np.zeros(0)
         max_raw = float(np.max(raw_depths)) if len(raw_depths) > 0 else 0.0

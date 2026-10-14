@@ -91,6 +91,7 @@ class AutonomousCFXOrchestrator:
         auto_approve_if_passed: bool = False,
         export_on_approval: bool = False,
         progress_callback: Optional[Callable[[str, int, int, dict], None]] = None,
+        cancel_check: Optional[Callable[[], bool]] = None,
     ) -> WorkflowExecutionResult:
         """Execute complete milestone autonomous workflow."""
         if auto_approve_if_passed and human_approval == HumanApprovalStatus.PENDING_REVIEW:
@@ -98,6 +99,8 @@ class AutonomousCFXOrchestrator:
         logger.info(f"=== Starting Autonomous CFX Workflow: {cloth_geometry.name} ===")
 
         def notify(stage: str, cur: int, total: int, extra: dict = None):
+            if cancel_check and cancel_check():
+                return
             if progress_callback:
                 progress_callback(stage, cur, total, extra or {})
 
@@ -187,7 +190,7 @@ class AutonomousCFXOrchestrator:
             pct = 10 + int((curr / float(total)) * 40)
             notify("Simulating Initial Run", pct, 100, metrics)
 
-        sim_cache = engine.run(progress_callback=engine_progress)
+        sim_cache = engine.run(progress_callback=engine_progress, cancel_check=cancel_check)
 
         # 3. Evaluate Simulation Quality (Strictly Automated Recommendation)
         notify("Evaluating Quality", 55, 100)
@@ -196,7 +199,7 @@ class AutonomousCFXOrchestrator:
         repair_records: List[RepairRecord] = []
 
         # 4. Attempt Bounded Self-Healing Repairs if needed
-        if initial_report.status != QualityStatus.PASS_RECOMMENDED:
+        if initial_report.status != QualityStatus.PASS_RECOMMENDED and not (cancel_check and cancel_check()):
             notify("Executing Bounded Repairs", 60, 100, {"pre_score": initial_report.score})
             logger.info("Simulation did not meet quality threshold. Initiating bounded repairs...")
 
@@ -215,6 +218,7 @@ class AutonomousCFXOrchestrator:
                 end_frame=end_frame,
                 current_cache=sim_cache,
                 progress_callback=repair_progress,
+                cancel_check=cancel_check,
             )
             sim_cache = repaired_cache
             final_report = repaired_report

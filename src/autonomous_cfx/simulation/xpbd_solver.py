@@ -248,7 +248,8 @@ class XPBDSolver:
             self.bending_constraints.reset_multipliers()
 
             # 5. Solver iterations
-            for _ in range(iterations):
+            last_collider_contacts = []
+            for it in range(iterations):
                 # Distance / stretch constraints
                 self.distance_constraints.project(
                     predicted_positions, self.inv_masses, dt_sub
@@ -259,16 +260,21 @@ class XPBDSolver:
                 )
 
                 # Cloth self-collision
-                self_col_count = self.self_collision.resolve_self_collisions(
-                    predicted_positions, self.inv_masses, iterations=1
-                )
-                total_self_collisions += self_col_count
+                if it == 0 or it == iterations - 1:
+                    self_col_count = self.self_collision.resolve_self_collisions(
+                        predicted_positions, self.inv_masses, iterations=1
+                    )
+                    total_self_collisions += self_col_count
 
                 # Moving collider contacts & penetration resolution
+                is_last_it = (it == iterations - 1)
                 for collider in self.colliders:
                     contact_mask, proj_pts, normals, col_vels = collider.project_points(
                         predicted_positions, margin=self.props.collision_thickness
                     )
+                    if is_last_it:
+                        last_collider_contacts.append((contact_mask, normals, col_vels))
+
                     meas = collider.last_measurement
                     if meas.contact_count > 0:
                         total_contacts += meas.contact_count
@@ -289,11 +295,16 @@ class XPBDSolver:
                 predicted_positions[active_mask] - self.prev_positions[active_mask]
             ) / dt_sub
 
-            # Apply friction at contact points
-            for collider in self.colliders:
-                contact_mask, _, normals, col_vels = collider.project_points(
-                    predicted_positions, margin=self.props.collision_thickness * 1.05
-                )
+            # Apply friction at contact points (reusing last iteration collision state)
+            fric = min(1.0, max(0.0, self.props.friction))
+            for c_idx, collider in enumerate(self.colliders):
+                if c_idx < len(last_collider_contacts):
+                    contact_mask, normals, col_vels = last_collider_contacts[c_idx]
+                else:
+                    contact_mask, _, normals, col_vels = collider.project_points(
+                        predicted_positions, margin=self.props.collision_thickness
+                    )
+
                 contact_active = contact_mask & active_mask
                 if np.any(contact_active):
                     rel_vel = self.velocities[contact_active] - col_vels[contact_active]
@@ -303,7 +314,6 @@ class XPBDSolver:
                     v_norm = np.minimum(0.0, v_norm_scalar) * n
                     v_tan = rel_vel - v_norm_scalar * n
 
-                    fric = min(1.0, max(0.0, self.props.friction))
                     v_tan_damped = v_tan * (1.0 - fric)
 
                     self.velocities[contact_active] = (
@@ -325,7 +335,11 @@ class XPBDSolver:
             )
             meas = collider.last_measurement
             if meas.true_penetration_count > 0:
-                active_pens = [v for v in meas.penetrating_vertex_ids if not self.pinned_mask[v]]
+                attached_to_col = set()
+                for att in self.attachments:
+                    if att.collider == collider:
+                        attached_to_col.update(att.cloth_indices)
+                active_pens = [v for v in meas.penetrating_vertex_ids if v not in attached_to_col]
                 if active_pens:
                     committed_pens += len(active_pens)
                     committed_pen_ids.update(active_pens)
